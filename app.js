@@ -1,4 +1,5 @@
 const STORAGE_KEY = "welfare_users_static_v2";
+const LEGACY_STORAGE_KEYS = ["welfare_users_v1", "welfare_users_static_v1"];
 const WARN_DAYS = 60;
 const URGENT_DAYS = 30;
 
@@ -40,20 +41,60 @@ const $ = selector => document.querySelector(selector);
 const $$ = selector => Array.from(document.querySelectorAll(selector));
 
 function loadAll() {
+  const current = parseUserList(localStorage.getItem(STORAGE_KEY));
+  if (current.length) {
+    return normalizeAndPersist(current);
+  }
+
+  const recovered = recoverStoredUsers();
+  if (recovered.length) {
+    alert(`保存済みデータを${recovered.length}件復元しました。`);
+    return normalizeAndPersist(recovered);
+  }
+
+  return [];
+}
+
+function saveAll(users) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(users));
+}
+
+function parseUserList(raw) {
+  if (!raw) return [];
   try {
-    const users = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    const normalized = users.map(user => normalizeUser(user));
-    if (JSON.stringify(users) !== JSON.stringify(normalized)) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
-    }
-    return normalized;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(isUserLikeData) : [];
   } catch {
     return [];
   }
 }
 
-function saveAll(users) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(users));
+function recoverStoredUsers() {
+  const candidates = [...LEGACY_STORAGE_KEYS, ...Object.keys(localStorage)]
+    .filter((key, index, all) => key !== STORAGE_KEY && all.indexOf(key) === index);
+
+  let best = [];
+  candidates.forEach(key => {
+    const users = parseUserList(localStorage.getItem(key));
+    if (users.length > best.length) best = users;
+  });
+  return best;
+}
+
+function normalizeAndPersist(users) {
+  const normalized = users.map(user => normalizeUser(user));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+function isUserLikeData(value) {
+  return !!value && typeof value === "object" && (
+    "name" in value ||
+    "recipientNo" in value ||
+    "recipientEnd" in value ||
+    "planEnd" in value ||
+    "checks" in value
+  );
 }
 
 function uid() {
@@ -461,7 +502,7 @@ function renderDashboard() {
   $("#count-monitoring").textContent = alerts.monitoring.length;
   $("#count-task").textContent = alerts.tasks.length;
   renderSummaryCard("summary-urgent", alerts.recipient.filter(item => item.level === "urgent"));
-  renderSummaryCard("summary-warn", alerts.recipient.filter(item => item.level === "warn"));
+  renderSummaryCard("summary-warn", alerts.recipient);
 }
 
 function renderSummaryCard(prefix, alerts) {
