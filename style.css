@@ -545,9 +545,10 @@ fieldset.section,
   padding: 8px 12px;
 }
 
-.deadline-complete-btn:disabled {
-  cursor: default;
-  opacity: 0.72;
+.deadline-complete-btn.undo {
+  color: var(--ok);
+  border-color: #b9dfc8;
+  background: #ffffff;
 }
 
 .service-line-main small,

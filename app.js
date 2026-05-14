@@ -41,7 +41,12 @@ const $$ = selector => Array.from(document.querySelectorAll(selector));
 
 function loadAll() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    const users = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    const normalized = users.map(user => normalizeUser(user));
+    if (JSON.stringify(users) !== JSON.stringify(normalized)) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    }
+    return normalized;
   } catch {
     return [];
   }
@@ -69,6 +74,18 @@ function upsertUser(user) {
 
 function deleteUser(id) {
   saveAll(loadAll().filter(user => user.id !== id));
+}
+
+function normalizeUser(user) {
+  user.checks = user.checks || {};
+  ["pdf", "apply", "updateInfo"].forEach(key => {
+    const task = user.checks[key];
+    if (task?.done && !task.completedForDate) {
+      task.completedForDate = taskDueDate(user, key) || "";
+    }
+  });
+  user.deadlineCompletions = user.deadlineCompletions || {};
+  return user;
 }
 
 function escapeHtml(value) {
@@ -229,8 +246,10 @@ function setValue(id, value) {
 function collectForm() {
   const selectedWard = MUNICIPALITY_OPTIONS.find(item => item.code === $("#ward").value);
   const customWard = $("#ward").value === "__custom__" ? $("#custom-ward").value.trim() : "";
-  return {
-    id: $("#user-id").value || uid(),
+  const id = $("#user-id").value || uid();
+  const existing = getUser(id) || {};
+  const user = {
+    id,
     name: $("#name").value.trim(),
     kana: $("#kana").value.trim(),
     birthday: $("#birthday").value,
@@ -257,24 +276,29 @@ function collectForm() {
         requested: $("#pdf-requested").value,
         nextCheck: $("#pdf-next-check").value,
         completed: $("#pdf-completed").value,
-        note: $("#pdf-note").value.trim()
+        note: $("#pdf-note").value.trim(),
+        completedForDate: existing.checks?.pdf?.completedForDate || ""
       },
       apply: {
         done: $("#chk-apply").checked || !!$("#apply-completed").value,
         due: $("#apply-due").value,
         completed: $("#apply-completed").value,
-        note: $("#apply-note").value.trim()
+        note: $("#apply-note").value.trim(),
+        completedForDate: existing.checks?.apply?.completedForDate || ""
       },
       updateInfo: {
         done: $("#chk-update-info").checked || !!$("#update-completed").value,
         due: $("#update-due").value,
         completed: $("#update-completed").value,
-        note: $("#update-note").value.trim()
+        note: $("#update-note").value.trim(),
+        completedForDate: existing.checks?.updateInfo?.completedForDate || ""
       }
     },
+    deadlineCompletions: existing.deadlineCompletions || {},
     note: $("#note").value.trim(),
     updatedAt: new Date().toISOString()
   };
+  return normalizeUser(user);
 }
 
 function buildAlerts(users) {
@@ -538,7 +562,7 @@ function showDetail(id) {
     checkbox.addEventListener("change", () => updateTaskFromCheckbox(id, checkbox.dataset.taskCheckbox, checkbox.checked));
   });
   $$("#detail-content [data-deadline-complete]").forEach(button => {
-    button.addEventListener("click", () => completeDeadline(id, button.dataset.deadlineComplete, button.dataset.deadlineDate));
+    button.addEventListener("click", () => toggleDeadline(id, button.dataset.deadlineComplete, button.dataset.deadlineDate));
   });
   showView("detail");
 }
@@ -615,8 +639,8 @@ function periodInfo(user, key, label, start, end) {
         <strong>${formatDate(start)}から <em>${formatDate(end)}</em> まで</strong>
         ${isDone ? `<small>完了日: ${formatDate(done.completed)}</small>` : ""}
       </div>
-      <button type="button" class="btn-secondary deadline-complete-btn" data-deadline-complete="${escapeHtml(key)}" data-deadline-date="${escapeHtml(end || "")}" ${isDone ? "disabled" : ""}>
-        ${isDone ? "完了済" : "完了"}
+      <button type="button" class="btn-secondary deadline-complete-btn ${isDone ? "undo" : ""}" data-deadline-complete="${escapeHtml(key)}" data-deadline-date="${escapeHtml(end || "")}">
+        ${isDone ? "もとに戻す" : "完了"}
       </button>
     </div>
   `;
@@ -655,21 +679,25 @@ function serviceHtml(service) {
         <p>使用事業所: ${escapeHtml(service.office || "-")}${service.level ? ` / 区分種別: ${escapeHtml(service.level)}` : ""}</p>
         ${done && done.date === service.end ? `<small>完了日: ${formatDate(done.completed)}</small>` : ""}
       </div>
-      <button type="button" class="btn-secondary deadline-complete-btn" data-deadline-complete="${escapeHtml(service.completeKey)}" data-deadline-date="${escapeHtml(service.end || "")}" ${done && done.date === service.end ? "disabled" : ""}>
-        ${done && done.date === service.end ? "完了済" : "完了"}
+      <button type="button" class="btn-secondary deadline-complete-btn ${done && done.date === service.end ? "undo" : ""}" data-deadline-complete="${escapeHtml(service.completeKey)}" data-deadline-date="${escapeHtml(service.end || "")}">
+        ${done && done.date === service.end ? "もとに戻す" : "完了"}
       </button>
     </div>
   `;
 }
 
-function completeDeadline(userId, key, date) {
+function toggleDeadline(userId, key, date) {
   const user = getUser(userId);
   if (!user) return;
   user.deadlineCompletions = user.deadlineCompletions || {};
-  user.deadlineCompletions[key] = {
-    date,
-    completed: new Date().toISOString().slice(0, 10)
-  };
+  if (user.deadlineCompletions[key]?.date === date) {
+    delete user.deadlineCompletions[key];
+  } else {
+    user.deadlineCompletions[key] = {
+      date,
+      completed: new Date().toISOString().slice(0, 10)
+    };
+  }
   upsertUser(user);
   renderDashboard();
   showDetail(userId);
