@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>福祉利用者管理システム</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">Welfare Management</p>
+      <h1>福祉利用者管理システム</h1>
+    </div>
+    <nav class="tabs" aria-label="主要メニュー">
+      <button class="tab-btn active" data-view="dashboard">ダッシュボード</button>
+      <button class="tab-btn" data-view="personal">個人シート</button>
+      <button class="tab-btn" data-view="monitoring">モニタリング</button>
+      <button class="tab-btn" data-view="backup">バックアップ</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-dashboard" class="view active">
+      <div class="view-header">
+        <div>
+          <h2>ダッシュボード</h2>
+          <p class="muted">カテゴリごとに「誰に、何を、いつまでに行うか」を確認します。</p>
+        </div>
+      </div>
+
+      <div class="summary-grid">
+        <div class="summary-card danger">
+          <div class="summary-heading">
+            <strong>期限切れ・30日以内</strong>
+            <span><b id="summary-urgent-count">0</b>件</span>
+          </div>
+          <div class="summary-links" id="summary-urgent-list"></div>
+        </div>
+        <div class="summary-card warn">
+          <div class="summary-heading">
+            <strong>60日以内に対応</strong>
+            <span><b id="summary-warn-count">0</b>件</span>
+          </div>
+          <div class="summary-links" id="summary-warn-list"></div>
+        </div>
+        <article class="category-card summary-recipient-card">
+          <div class="card-title">
+            <div>
+              <h3>受給者証の更新</h3>
+              <p>受給者証・計画相談・各サービスの期限、申請期限を見ます。</p>
+            </div>
+            <span class="count-badge" id="count-recipient">0</span>
+          </div>
+          <div id="alert-recipient" class="alert-list"></div>
+        </article>
+      </div>
+
+      <div class="dashboard-grid">
+        <article class="category-card wide">
+          <div class="card-title">
+            <div>
+              <h3>処理タスク</h3>
+              <p>PDF写し、申請、情報更新が完了するまで残ります。</p>
+            </div>
+            <span class="count-badge" id="count-task">0</span>
+          </div>
+          <div id="alert-task" class="alert-list"></div>
+        </article>
+
+        <article class="category-card">
+          <div class="card-title">
+            <div>
+              <h3>モニタリング</h3>
+              <p>毎月・3か月・半年の当月対象者です。</p>
+            </div>
+            <span class="count-badge" id="count-monitoring">0</span>
+          </div>
+          <div id="alert-monitoring" class="alert-list"></div>
+        </article>
+      </div>
+    </section>
+
+    <section id="view-personal" class="view">
+      <div class="view-header">
+        <div>
+          <h2>個人シート</h2>
+          <p class="muted">入力済みの利用者を選び、個別の台帳を確認します。</p>
+        </div>
+        <button class="btn-primary" id="btn-new-from-personal">+ 新規入力</button>
+      </div>
+      <div id="personal-sheet-list" class="personal-sheet-list"></div>
+    </section>
+
+    <section id="view-monitoring" class="view">
+      <div class="view-header">
+        <div>
+          <h2>モニタリング</h2>
+          <p class="muted">モニタリング管理ページは作成予定です。</p>
+        </div>
+      </div>
+      <div class="empty-state">
+        このページでは今後、モニタリング対象者、実施月、実施状況を確認できるようにします。
+      </div>
+    </section>
+
+    <section id="view-detail" class="view">
+      <div class="view-header">
+        <div>
+          <h2 id="detail-title">確認画面</h2>
+          <p class="muted">ダッシュボードから直接編集せず、まず内容を確認します。</p>
+        </div>
+        <div class="actions">
+          <button class="btn-secondary" data-view-link="dashboard">ダッシュボードへ戻る</button>
+          <button class="btn-primary" id="btn-edit-from-detail">編集する</button>
+        </div>
+      </div>
+      <div id="detail-content" class="detail-grid"></div>
+    </section>
+
+    <section id="view-input" class="view">
+      <div class="view-header sticky-actions">
+        <div>
+          <h2 id="input-title">入力シート</h2>
+          <p class="muted">指定項目だけを入力します。保存後は確認画面へ移動します。</p>
+        </div>
+        <div class="actions">
+          <button class="btn-secondary" id="btn-cancel">キャンセル</button>
+          <button class="btn-primary" id="btn-save-top">保存</button>
+        </div>
+      </div>
+
+      <form id="user-form" autocomplete="off">
+        <input type="hidden" id="user-id">
+
+        <fieldset class="section">
+          <legend>1. 個人情報</legend>
+          <div class="grid-2">
+            <label>氏名 <span class="req">*</span><input type="text" id="name" required></label>
+            <label>フリガナ<input type="text" id="kana"></label>
+            <label>生年月日<input type="date" id="birthday"></label>
+            <label>電話番号<input type="tel" id="phone" placeholder="例: 011-000-0000"></label>
+            <label class="span-2">住所<input type="text" id="address"></label>
+            <label>受給者証番号<input type="text" id="recipient-no"></label>
+          </div>
+        </fieldset>
+
+        <fieldset class="section">
+          <legend>2. 受給者証情報</legend>
+          <div class="grid-2">
+            <label>管轄する区
+              <select id="ward"></select>
+            </label>
+            <label id="custom-ward-wrap" class="hidden">区名（手入力）
+              <input type="text" id="custom-ward" placeholder="例: 札幌市〇〇区">
+            </label>
+            <label>自治体コード6桁
+              <input type="text" id="municipal-code" maxlength="6" pattern="\d{6}" inputmode="numeric" placeholder="011015">
+            </label>
+            <label>障害者種別
+              <select id="disability-type">
+                <option value="">選択してください</option>
+                <option>身体障害</option>
+                <option>知的障害</option>
+                <option>精神障害</option>
+                <option>発達障害</option>
+                <option>難病等</option>
+                <option>重複</option>
+                <option>その他</option>
+              </select>
+            </label>
+            <label>受給者証 有効期間 開始<input type="date" id="recipient-start"></label>
+            <label>受給者証 有効期間 終了<input type="date" id="recipient-end"></label>
+            <label>更新申請期限<input type="date" id="application-deadline"></label>
+          </div>
+        </fieldset>
+
+        <fieldset class="section">
+          <legend>3. 計画相談支援情報</legend>
+          <div class="grid-2">
+            <label>有効期間 開始<input type="date" id="plan-start"></label>
+            <label>有効期間 終了<input type="date" id="plan-end"></label>
+            <label>モニタリング月
+              <select id="monitoring-cycle">
+                <option value="">選択してください</option>
+                <option value="毎月">毎月</option>
+                <option value="3か月">3か月</option>
+                <option value="半年">半年</option>
+              </select>
+            </label>
+            <label>利用者負担上限額<input type="text" id="payment-cap" placeholder="例: 0 / 4,600 / 9,300 / 37,200"></label>
+          </div>
+        </fieldset>
+
+        <fieldset class="section">
+          <legend>4. 訓練等給付費情報1</legend>
+          <div class="service-rows" id="training1-rows"></div>
+          <button type="button" class="btn-add" data-target="training1">+ サービス追加</button>
+        </fieldset>
+
+        <fieldset class="section">
+          <legend>5. 訓練等給付費情報2（共同生活援助）</legend>
+          <div class="service-rows" id="training2-rows"></div>
+          <button type="button" class="btn-add" data-target="training2">+ サービス追加</button>
+        </fieldset>
+
+        <fieldset class="section">
+          <legend>6. 介護給付費情報1</legend>
+          <div class="service-rows" id="care1-rows"></div>
+          <button type="button" class="btn-add" data-target="care1">+ サービス追加</button>
+        </fieldset>
+
+        <fieldset class="section">
+          <legend>7. 介護給付費情報2</legend>
+          <div class="service-rows" id="care2-rows"></div>
+          <button type="button" class="btn-add" data-target="care2">+ サービス追加</button>
+        </fieldset>
+
+        <fieldset class="section check-section">
+          <legend>8. チェック機能（更新時タスク）</legend>
+          <div class="check-grid">
+            <div class="task-box">
+              <label><input type="checkbox" id="chk-pdf"> 受給者証の写し（PDF）の保管</label>
+              <div class="grid-3">
+                <label>依頼日<input type="date" id="pdf-requested"></label>
+                <label>次回確認日<input type="date" id="pdf-next-check"></label>
+                <label>完了日<input type="date" id="pdf-completed"></label>
+              </div>
+              <label>未回収理由・メモ<input type="text" id="pdf-note"></label>
+            </div>
+            <div class="task-box">
+              <label><input type="checkbox" id="chk-apply"> 受給者証の更新手続き（役所への申請）</label>
+              <div class="grid-3">
+                <label>期限<input type="date" id="apply-due"></label>
+                <label>完了日<input type="date" id="apply-completed"></label>
+                <label>メモ<input type="text" id="apply-note"></label>
+              </div>
+            </div>
+            <div class="task-box">
+              <label><input type="checkbox" id="chk-update-info"> 情報の更新（入力シートの有効期間等）</label>
+              <div class="grid-3">
+                <label>期限<input type="date" id="update-due"></label>
+                <label>完了日<input type="date" id="update-completed"></label>
+                <label>メモ<input type="text" id="update-note"></label>
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="section">
+          <legend>備考・申し送り</legend>
+          <label>備考<textarea id="note" rows="4"></textarea></label>
+        </fieldset>
+
+        <div class="form-footer">
+          <button type="button" class="btn-danger" id="btn-delete" style="display:none;">この利用者を削除</button>
+          <button type="button" class="btn-secondary" id="btn-cancel-bottom">キャンセル</button>
+          <button type="submit" class="btn-primary">保存して確認</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="view-backup" class="view">
+      <div class="view-header">
+        <div>
+          <h2>バックアップ</h2>
+          <p class="muted">HTML版はブラウザ内に保存します。定期的にExcelで開けるCSVで保管してください。</p>
+        </div>
+      </div>
+      <div class="backup-box">
+        <p>登録件数: <strong id="record-count">0</strong> 件</p>
+        <div class="actions">
+          <button class="btn-primary" id="btn-export">CSVエクスポート（Excel用）</button>
+          <label class="btn-secondary file-label">CSVインポート<input type="file" id="import-file" accept=".csv,text/csv" hidden></label>
+          <button class="btn-danger" id="btn-clear">全データ削除</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <template id="tpl-service-row">
+    <div class="service-row">
+      <select class="svc-type"></select>
+      <input type="date" class="svc-start" title="開始日">
+      <input type="date" class="svc-end" title="終了日">
+      <input type="text" class="svc-office" placeholder="使用事業所">
+      <select class="svc-level hidden">
+        <option value="">区分種別</option>
+        <option>区分1</option>
+        <option>区分2</option>
+        <option>区分3</option>
+        <option>区分4</option>
+        <option>区分5</option>
+        <option>区分6</option>
+        <option>区分なし</option>
+      </select>
+      <button type="button" class="btn-remove">削除</button>
+    </div>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
