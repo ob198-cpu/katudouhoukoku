@@ -144,6 +144,14 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function localIso(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-");
+}
+
 const app = loadApp();
 
 assert(app.toIsoDateFromEra("reiwa", "8", "6", "20") === "2026-06-20", "令和8年6月20日の変換に失敗");
@@ -158,7 +166,17 @@ assert(app.toJapaneseEraDate(user.planEnd) === "令和8年6月20日", "保存値
 
 const soon = new Date();
 soon.setDate(soon.getDate() + 10);
-const soonIso = soon.toISOString().slice(0, 10);
+const soonIso = localIso(soon);
+const exactlyThirty = new Date();
+exactlyThirty.setDate(exactlyThirty.getDate() + 30);
+const exactlyThirtyIso = localIso(exactlyThirty);
+const thirtyOne = new Date();
+thirtyOne.setDate(thirtyOne.getDate() + 31);
+const thirtyOneIso = localIso(thirtyOne);
+const todayIso = localIso(new Date());
+const yesterday = new Date();
+yesterday.setDate(yesterday.getDate() - 1);
+const yesterdayIso = localIso(yesterday);
 const alertUser = {
   status: "active",
   planEnd: soonIso,
@@ -173,6 +191,15 @@ const alertUser = {
 };
 assert(app.isRenewalMonthActive(alertUser), "30日以内の未完了者がアラート対象になっていない");
 assert(app.renewalAlertLabel(alertUser).includes("期限まであと"), "アラート文言が自然表示になっていない");
+alertUser.planEnd = exactlyThirtyIso;
+assert(app.isRenewalMonthActive(alertUser), "30日前ちょうどがアラート対象になっていない");
+alertUser.planEnd = thirtyOneIso;
+assert(!app.isRenewalMonthActive(alertUser), "31日前がアラート対象になっている");
+alertUser.planEnd = todayIso;
+assert(app.renewalAlertLabel(alertUser) === "本日期限", "当日期限の表示が本日期限にならない");
+alertUser.planEnd = yesterdayIso;
+assert(app.renewalAlertLabel(alertUser) === "期限超過 1日", "期限超過の表示が正しくない");
+alertUser.planEnd = soonIso;
 Object.values(alertUser.checks).forEach(task => {
   task.done = true;
   task.completedForDate = soonIso;
