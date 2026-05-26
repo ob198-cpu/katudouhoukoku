@@ -239,6 +239,14 @@ function renewalAlertLabel(user) {
   return `期限 ${formatDate(targetDate)}`;
 }
 
+function deadlineStatusText(value) {
+  const days = daysUntil(value);
+  if (days === null) return "期限未設定";
+  if (days < 0) return `期限超過 ${Math.abs(days)}日`;
+  if (days === 0) return "本日期限";
+  return `期限まであと${days}日`;
+}
+
 function isRenewalMonthActive(user) {
   if (!isAlertEligible(user)) return false;
   const target = parseDate(renewalTargetDate(user));
@@ -1089,7 +1097,7 @@ function serviceHtml(service) {
         <strong>${escapeHtml(service.type || "-")}</strong>
         <p>${escapeHtml(service.group)} / ${formatDate(service.start)}から <em>${formatDate(service.end)}</em> まで</p>
         <p>使用事業所: ${escapeHtml(service.office || "-")}${service.level ? ` / 区分種別: ${escapeHtml(service.level)}` : ""}</p>
-        ${urgent ? `<small class="urgent-text">期限まであと${days}日</small>` : ""}
+        ${urgent ? `<small class="urgent-text">${escapeHtml(deadlineStatusText(service.end))}</small>` : ""}
         ${isDone ? `<small>完了日: ${formatDate(done.completed)}</small>` : ""}
       </div>
       <button type="button" class="btn-secondary deadline-complete-btn ${isDone ? "undo" : ""}" data-deadline-complete="${escapeHtml(service.completeKey)}" data-deadline-date="${escapeHtml(service.end || "")}">

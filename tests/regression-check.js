@@ -123,6 +123,7 @@ function loadApp(documentMock = createFormHarness()) {
       collectForm,
       csvCell,
       deadlineAlert,
+      deadlineStatusText,
       isDeadlineCompleted,
       isDashboardVisible,
       isMonitoringMonth,
@@ -132,6 +133,7 @@ function loadApp(documentMock = createFormHarness()) {
       parseCsv,
       readDateInput,
       renewalAlertLabel,
+      serviceHtml,
       toIsoDateFromEra,
       toJapaneseEraDate
     };`,
@@ -199,6 +201,7 @@ alertUser.planEnd = todayIso;
 assert(app.renewalAlertLabel(alertUser) === "本日期限", "当日期限の表示が本日期限にならない");
 alertUser.planEnd = yesterdayIso;
 assert(app.renewalAlertLabel(alertUser) === "期限超過 1日", "期限超過の表示が正しくない");
+assert(app.deadlineStatusText(yesterdayIso) === "期限超過 1日", "期限表示ヘルパーの超過表示が正しくない");
 alertUser.planEnd = soonIso;
 Object.values(alertUser.checks).forEach(task => {
   task.done = true;
@@ -225,6 +228,20 @@ const deadlineItem = { key: "plan", title: "計画相談", start: deadlineUser.p
 assert(app.deadlineAlert(deadlineUser, deadlineItem)?.level === "urgent", "30日以内の期限情報が緊急扱いにならない");
 deadlineUser.deadlineCompletions.plan = { date: soonIso, completed: soonIso };
 assert(app.isDeadlineCompleted(deadlineUser, deadlineItem), "期限確認済が完了扱いにならない");
+
+const pastServiceHtml = app.serviceHtml({
+  type: "就労移行支援",
+  group: "訓練等給付費情報1",
+  start: "2026-01-05",
+  end: yesterdayIso,
+  office: "就労支援トライズ大通",
+  completeKey: "service:test",
+  deadlineCompletions: {},
+  alertEligible: true,
+  renewalComplete: false
+});
+assert(pastServiceHtml.includes("期限超過 1日"), "サービス期限の超過表示が正しくない");
+assert(!pastServiceHtml.includes("期限まであと-"), "サービス期限に負の日数表示が残っている");
 
 const monitoringUser = { status: "active", planStart: "2026-02-01", monitoringCycle: "3か月" };
 assert(app.isMonitoringMonth(monitoringUser), "3か月ごとのモニタリング月判定が現在月で成立していない");
