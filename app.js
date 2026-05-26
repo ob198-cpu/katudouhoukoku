@@ -115,6 +115,42 @@ function isUserLikeData(value) {
   );
 }
 
+function decodeImportPayload(payload) {
+  const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function importUserFromUrlHash() {
+  const hash = window.location.hash || "";
+  if (!hash.startsWith("#importUser=")) return "";
+  try {
+    const imported = JSON.parse(decodeImportPayload(hash.slice("#importUser=".length)));
+    if (!isUserLikeData(imported)) throw new Error("利用者データとして読み取れません。");
+    const existing = loadAll().find(user =>
+      imported.recipientNo && user.recipientNo === imported.recipientNo
+    );
+    const user = normalizeUser({
+      ...existing,
+      ...imported,
+      id: existing?.id || imported.id || uid(),
+      checks: existing?.checks || imported.checks || {},
+      deadlineCompletions: existing?.deadlineCompletions || imported.deadlineCompletions || {},
+      history: existing?.history || imported.history || []
+    });
+    addHistory(user, existing ? "URL取込で更新" : "URL取込で新規作成", `計画相談期限: ${formatDate(user.planEnd)}`);
+    upsertUser(user);
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    return user.id;
+  } catch (error) {
+    alert(`URLからの取り込みに失敗しました: ${error.message}`);
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    return "";
+  }
+}
+
 function uid() {
   return `u_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -1345,7 +1381,9 @@ function init() {
     if (file) importCsv(file);
     event.target.value = "";
   });
+  const importedId = importUserFromUrlHash();
   renderDashboard();
+  if (importedId) showDetail(importedId);
 }
 
 document.addEventListener("DOMContentLoaded", init);
