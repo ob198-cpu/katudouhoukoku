@@ -48,6 +48,12 @@ const SERVICE_LABELS = {
 };
 
 const TASK_LABELS = Object.fromEntries(RENEWAL_STEPS.map(step => [step.key, step.label]));
+const USER_STATUS_LABELS = {
+  active: "利用中",
+  paused: "停止",
+  ended: "終了",
+  hidden: "非表示"
+};
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => Array.from(document.querySelectorAll(selector));
@@ -131,6 +137,8 @@ function deleteUser(id) {
 
 function normalizeUser(user) {
   user.checks = user.checks || {};
+  user.history = Array.isArray(user.history) ? user.history.slice(-100) : [];
+  user.status = user.status || "active";
   user.monitoringCycle = normalizeMonitoringCycle(user.monitoringCycle);
   SINGLE_SERVICE_TARGETS.forEach(key => {
     user[key] = (user[key] || []).slice(0, 1);
@@ -147,9 +155,29 @@ function normalizeUser(user) {
     if (task?.done && !task.completedForDate) {
       task.completedForDate = taskDueDate(user, key) || "";
     }
+    if (!task?.done && task?.completedForDate) {
+      task.completedForDate = "";
+    }
   });
   user.deadlineCompletions = user.deadlineCompletions || {};
   return user;
+}
+
+function addHistory(user, action, detail = "") {
+  user.history = Array.isArray(user.history) ? user.history : [];
+  user.history.push({
+    at: new Date().toISOString(),
+    action,
+    detail
+  });
+  user.history = user.history.slice(-100);
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${formatDate(date.toISOString().slice(0, 10))} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function escapeHtml(value) {
@@ -199,11 +227,24 @@ function renewalMonthLabel(user) {
   return `${target.getMonth() + 1}月受給者証更新`;
 }
 
+function renewalAlertLabel(user) {
+  const targetDate = renewalTargetDate(user);
+  const days = daysUntil(targetDate);
+  if (!targetDate || days === null) return "期限未設定";
+  if ((user.status || "active") !== "active") return USER_STATUS_LABELS[user.status] || "対象外";
+  if (isRenewalComplete(user)) return "更新完了";
+  if (days < 0) return `期限超過 ${Math.abs(days)}日`;
+  if (days === 0) return "本日期限";
+  if (days <= URGENT_DAYS) return `期限まであと${days}日`;
+  return `期限 ${formatDate(targetDate)}`;
+}
+
 function isRenewalMonthActive(user) {
+  if (!isAlertEligible(user)) return false;
   const target = parseDate(renewalTargetDate(user));
   if (!target) return false;
-  const now = new Date();
-  return monthStart(now).getTime() >= monthStart(target).getTime() && !isRenewalComplete(user);
+  const days = daysUntil(renewalTargetDate(user));
+  return days !== null && days <= URGENT_DAYS && !isRenewalComplete(user);
 }
 
 function isRenewalStepDone(user, key) {
@@ -290,10 +331,12 @@ function setupJapaneseDateInputs(root = document) {
       <input type="number" class="era-year" min="1" max="99" inputmode="numeric" aria-label="年">
       <span>年</span>
       <select class="era-month" aria-label="月">
+        <option value=""></option>
         ${Array.from({ length: 12 }, (_, index) => `<option value="${index + 1}">${index + 1}</option>`).join("")}
       </select>
       <span>月</span>
       <select class="era-day" aria-label="日">
+        <option value=""></option>
         ${Array.from({ length: 31 }, (_, index) => `<option value="${index + 1}">${index + 1}</option>`).join("")}
       </select>
       <span>日</span>
@@ -312,8 +355,8 @@ function setupJapaneseDateInputs(root = document) {
       if (!parts) {
         eraSelect.value = "reiwa";
         eraYear.value = "";
-        eraMonth.value = "1";
-        eraDay.value = "1";
+        eraMonth.value = "";
+        eraDay.value = "";
         return;
       }
       eraSelect.value = parts.era;
@@ -336,6 +379,7 @@ function setupJapaneseDateInputs(root = document) {
     });
     input.addEventListener("change", syncFromInput);
     input._syncEraFromInput = syncFromInput;
+    input._syncEraToInput = syncToInput;
     syncFromInput();
   });
 }
@@ -344,6 +388,19 @@ function syncJapaneseDateInputs(root = document) {
   root.querySelectorAll('input[type="date"][data-era-ready]').forEach(input => {
     if (input._syncEraFromInput) input._syncEraFromInput();
   });
+}
+
+function syncEraInputsToNative(root = document) {
+  root.querySelectorAll('input[type="date"][data-era-ready]').forEach(input => {
+    if (input._syncEraToInput) input._syncEraToInput();
+  });
+}
+
+function readDateInput(selector, root = document) {
+  const input = root.querySelector(selector);
+  if (!input) return "";
+  if (input._syncEraToInput) input._syncEraToInput();
+  return input.value || "";
 }
 
 function showView(name) {
@@ -405,8 +462,8 @@ function addServiceRow(target, data = {}) {
 function collectServiceRows(target) {
   const rows = $$(`#${target}-rows .service-row`).map(row => ({
     type: row.querySelector(".svc-type").value,
-    start: row.querySelector(".svc-start").value,
-    end: row.querySelector(".svc-end").value,
+    start: readDateInput(".svc-start", row),
+    end: readDateInput(".svc-end", row),
     office: row.querySelector(".svc-office").value.trim(),
     level: target === "training2" ? row.querySelector(".svc-level").value : ""
   })).filter(row => row.type || row.start || row.end || row.office || row.level);
@@ -437,6 +494,7 @@ function fillForm(user) {
   setValue("phone", user.phone);
   setValue("address", user.address);
   setValue("recipient-no", user.recipientNo);
+  setValue("user-status", user.status || "active");
   setValue("municipal-code", user.municipalCode);
   setValue("disability-type", user.disabilityType);
   setValue("recipient-start", user.recipientStart);
@@ -485,8 +543,8 @@ function fillRenewalTaskField(user, checks, step) {
 
 function collectRenewalTaskField(existing, step) {
   const existingTask = existing.checks?.[step.key] || {};
-  const completed = $(`#${step.formKey}-completed`)?.value || "";
-  const done = !!$(`#chk-${step.formKey}`)?.checked || !!completed;
+  const completed = readDateInput(`#${step.formKey}-completed`);
+  const done = !!$(`#chk-${step.formKey}`)?.checked;
   return {
     done,
     due: existingTask.due || "",
@@ -505,18 +563,19 @@ function collectForm() {
     id,
     name: $("#name").value.trim(),
     kana: $("#kana").value.trim(),
-    birthday: $("#birthday").value,
+    birthday: readDateInput("#birthday"),
     phone: $("#phone").value.trim(),
     address: $("#address").value.trim(),
     recipientNo: $("#recipient-no").value.trim(),
+    status: $("#user-status").value || "active",
     wardName: selectedWard ? selectedWard.label : customWard,
     municipalCode: $("#municipal-code").value.trim(),
     disabilityType: $("#disability-type").value,
-    recipientStart: $("#recipient-start").value,
+    recipientStart: readDateInput("#recipient-start"),
     recipientEnd: existing.recipientEnd || "",
     applicationDeadline: existing.applicationDeadline || "",
-    planStart: $("#plan-start").value,
-    planEnd: $("#plan-end").value,
+    planStart: readDateInput("#plan-start"),
+    planEnd: readDateInput("#plan-end"),
     monitoringCycle: normalizeMonitoringCycle($("#monitoring-cycle").value),
     paymentCap: $("#payment-cap").value.trim(),
     training1: collectServiceRows("training1"),
@@ -525,6 +584,7 @@ function collectForm() {
     care2: collectServiceRows("care2"),
     checks: Object.fromEntries(RENEWAL_STEPS.map(step => [step.key, collectRenewalTaskField(existing, step)])),
     deadlineCompletions: existing.deadlineCompletions || {},
+    history: existing.history || [],
     note: $("#note").value.trim(),
     updatedAt: new Date().toISOString()
   };
@@ -656,6 +716,7 @@ function pendingTaskLabels(user) {
 }
 
 function isMonitoringMonth(user) {
+  if (!isAlertEligible(user)) return false;
   const cycleMonths = monitoringCycleMonths(user.monitoringCycle);
   if (!cycleMonths) return false;
   if (cycleMonths === 1) return true;
@@ -667,8 +728,16 @@ function isMonitoringMonth(user) {
   return diff % cycleMonths === 0;
 }
 
+function isAlertEligible(user) {
+  return (user.status || "active") === "active";
+}
+
+function isDashboardVisible(user) {
+  return (user.status || "active") !== "hidden";
+}
+
 function renderDashboard() {
-  const users = loadAll();
+  const users = loadAll().filter(user => isDashboardVisible(user));
   const monitoringUsers = users.filter(user => isMonitoringMonth(user));
   renderMonitoringCards(users);
   renderRenewalCards(users);
@@ -688,10 +757,11 @@ function renderMonitoringCards(users) {
   users.forEach(user => {
     const active = isMonitoringMonth(user);
     const card = document.createElement("article");
-    card.className = `monitoring-person-card ${active ? "active" : ""}`;
+    const status = user.status || "active";
+    card.className = `monitoring-person-card ${active ? "active" : ""} ${status !== "active" ? "inactive" : ""}`;
     card.innerHTML = `
       <button type="button" class="monitoring-person-name" data-monitoring-open="${escapeHtml(user.id)}">${escapeHtml(user.name || "(無名)")}</button>
-      <span class="monitoring-status ${active ? "alert" : ""}">${active ? "当月モニタリング" : escapeHtml(user.monitoringCycle || "未設定")}</span>
+      <span class="monitoring-status ${active ? "alert" : ""}">${status !== "active" ? escapeHtml(USER_STATUS_LABELS[status]) : active ? "当月モニタリング" : escapeHtml(user.monitoringCycle || "未設定")}</span>
     `;
     card.querySelector("[data-monitoring-open]").addEventListener("click", () => showDetail(user.id));
     container.appendChild(card);
@@ -730,11 +800,12 @@ function renderRenewalCards(users) {
   users.forEach(user => {
     const active = isRenewalMonthActive(user);
     const complete = isRenewalComplete(user);
+    const status = user.status || "active";
     const card = document.createElement("article");
-    card.className = `renewal-person-card ${active ? "active" : ""} ${complete ? "complete" : ""}`;
+    card.className = `renewal-person-card ${active ? "active" : ""} ${complete ? "complete" : ""} ${status !== "active" ? "inactive" : ""}`;
     card.innerHTML = `
       <button type="button" class="renewal-person-name" data-renewal-open="${escapeHtml(user.id)}">${escapeHtml(user.name || "(無名)")}</button>
-      <span class="renewal-month-badge ${active ? "alert" : ""}">${escapeHtml(renewalMonthLabel(user))}</span>
+      <span class="renewal-month-badge ${active ? "alert" : ""}">${escapeHtml(renewalAlertLabel(user))}</span>
       <div class="renewal-step-tags">
         ${RENEWAL_STEPS.map((step, index) => renewalStepTagHtml(user, step, index)).join("")}
       </div>
@@ -844,7 +915,8 @@ function renderPersonalSheets() {
 
   users.forEach(user => {
     const card = document.createElement("article");
-    card.className = "personal-sheet-card";
+    const status = user.status || "active";
+    card.className = `personal-sheet-card ${status !== "active" ? "inactive" : ""}`;
     card.innerHTML = `
       <div>
         <h3>${escapeHtml(user.name || "(無名)")}</h3>
@@ -852,6 +924,7 @@ function renderPersonalSheets() {
       </div>
       <div class="personal-sheet-meta">
         <span>受給者証番号: ${escapeHtml(user.recipientNo || "-")}</span>
+        <span>状態: ${escapeHtml(USER_STATUS_LABELS[status] || "利用中")}</span>
         <span>区: ${escapeHtml(user.wardName || "-")}</span>
         <span>計画相談期限: ${formatDate(user.planEnd)}</span>
         <span>モニタリング: ${escapeHtml(user.monitoringCycle || "-")}</span>
@@ -886,17 +959,22 @@ function showDetail(id) {
 }
 
 function detailHtml(user) {
+  const renewalComplete = isRenewalComplete(user);
   const services = ["training1", "training2", "care1", "care2"].flatMap(key =>
     (user[key] || []).map((row, index) => ({
       ...row,
       completeKey: `service:${key}:${index}:${row.type || ""}:${row.start || ""}:${row.end || ""}`,
       deadlineCompletions: user.deadlineCompletions || {},
-      group: SERVICE_LABELS[key]
+      group: SERVICE_LABELS[key],
+      alertEligible: isAlertEligible(user),
+      renewalComplete
     }))
   );
+  const renewalActive = isRenewalMonthActive(user);
+  const alertLabel = renewalAlertLabel(user);
   return `
     <div class="detail-top-grid wide-detail">
-      <article class="detail-card task-priority-card">
+      <article class="detail-card task-priority-card ${renewalActive ? "renewal-urgent" : ""}">
         <div class="priority-heading">
           <div>
             <h3>更新時タスク</h3>
@@ -904,10 +982,17 @@ function detailHtml(user) {
           </div>
           <span>${taskDoneCount(user)} / ${RENEWAL_STEPS.length} 完了</span>
         </div>
+        ${renewalActive ? `
+          <div class="renewal-alert-note">
+            <strong>${escapeHtml(alertLabel)}</strong>
+            <span>更新手続きが未完了です。下の未完了項目を処理してください。</span>
+          </div>
+        ` : ""}
         ${RENEWAL_STEPS.map(step => taskHtml(user, step)).join("")}
       </article>
-      <article class="detail-card deadline-summary-card">
+      <article class="detail-card deadline-summary-card ${renewalActive ? "renewal-urgent" : ""}">
         <h3>期限情報・サービス期限まとめ</h3>
+        ${renewalActive ? `<p class="deadline-alert-text">${escapeHtml(alertLabel)}です。期限の確認と更新手続きを進めてください。</p>` : ""}
         <div class="deadline-main-grid">
           ${periodInfo(user, "plan", "計画相談", user.planStart, user.planEnd)}
           ${info("モニタリング", user.monitoringCycle)}
@@ -926,6 +1011,7 @@ function detailHtml(user) {
         ${info("電話番号", user.phone)}
         ${info("住所", user.address)}
         ${info("受給者証番号", user.recipientNo)}
+        ${info("利用状態", USER_STATUS_LABELS[user.status || "active"] || "利用中")}
         ${info("管轄する区", user.wardName)}
         ${info("自治体コード", user.municipalCode)}
         ${info("障害者種別", user.disabilityType)}
@@ -935,6 +1021,10 @@ function detailHtml(user) {
     <article class="detail-card wide-detail">
       <h3>備考</h3>
       <p>${escapeHtml(user.note || "備考はありません。")}</p>
+    </article>
+    <article class="detail-card wide-detail history-card">
+      <h3>履歴確認</h3>
+      ${historyHtml(user)}
     </article>
   `;
 }
@@ -946,15 +1036,18 @@ function info(label, value) {
 function periodInfo(user, key, label, start, end) {
   const done = user.deadlineCompletions?.[key];
   const isDone = !!done && done.date === end;
+  const days = daysUntil(end);
+  const urgent = isAlertEligible(user) && !isRenewalComplete(user) && !isDone && days !== null && days <= URGENT_DAYS;
   return `
-    <div class="info-box period-info ${isDone ? "deadline-done" : ""}">
+    <div class="info-box period-info ${isDone ? "deadline-done" : ""} ${urgent ? "urgent" : ""}">
       <div>
         <span>${escapeHtml(label)}</span>
         <strong>${formatDate(start)}から <em>${formatDate(end)}</em> まで</strong>
+        ${urgent ? `<small class="urgent-text">${escapeHtml(renewalAlertLabel(user))}</small>` : ""}
         ${isDone ? `<small>完了日: ${formatDate(done.completed)}</small>` : ""}
       </div>
       <button type="button" class="btn-secondary deadline-complete-btn ${isDone ? "undo" : ""}" data-deadline-complete="${escapeHtml(key)}" data-deadline-date="${escapeHtml(end || "")}">
-        ${isDone ? "もとに戻す" : "完了"}
+        ${isDone ? "確認を戻す" : "期限確認済"}
       </button>
     </div>
   `;
@@ -965,8 +1058,9 @@ function taskHtml(user, step) {
   const task = user.checks?.[key] || {};
   const done = isRenewalStepDone(user, key);
   const date = task.nextCheck || task.due || task.completed || task.requested;
+  const urgent = !done && isRenewalMonthActive(user);
   return `
-    <div class="task-line ${done ? "done" : "pending"}">
+    <div class="task-line ${done ? "done" : "pending"} ${urgent ? "urgent" : ""}">
       <label class="task-check-label">
         <input type="checkbox" data-task-checkbox="${key}" ${done ? "checked" : ""}>
         <span>${done ? "完了" : "未完了"}</span>
@@ -974,7 +1068,7 @@ function taskHtml(user, step) {
       <div class="task-line-body">
         <strong>${escapeHtml(step.label)}</strong>
         <p>状態: ${done ? "完了" : "未完了"} / 確認日: ${formatDate(date)} ${task.note ? ` / ${escapeHtml(task.note)}` : ""}</p>
-        <small>完了後も、期限まであと30日になったら処理タスクに再表示します。</small>
+        <small>${urgent ? `${escapeHtml(renewalAlertLabel(user))}。この手続きが未完了です。` : "完了後も、期限まであと30日になったら処理タスクに再表示します。"}</small>
       </div>
     </div>
   `;
@@ -986,17 +1080,39 @@ function taskDoneCount(user) {
 
 function serviceHtml(service) {
   const done = service.deadlineCompletions?.[service.completeKey];
+  const isDone = !!done && done.date === service.end;
+  const days = daysUntil(service.end);
+  const urgent = service.alertEligible !== false && !service.renewalComplete && !isDone && days !== null && days <= URGENT_DAYS;
   return `
-    <div class="service-line ${done && done.date === service.end ? "deadline-done" : ""}">
+    <div class="service-line ${isDone ? "deadline-done" : ""} ${urgent ? "urgent" : ""}">
       <div class="service-line-main">
         <strong>${escapeHtml(service.type || "-")}</strong>
         <p>${escapeHtml(service.group)} / ${formatDate(service.start)}から <em>${formatDate(service.end)}</em> まで</p>
         <p>使用事業所: ${escapeHtml(service.office || "-")}${service.level ? ` / 区分種別: ${escapeHtml(service.level)}` : ""}</p>
-        ${done && done.date === service.end ? `<small>完了日: ${formatDate(done.completed)}</small>` : ""}
+        ${urgent ? `<small class="urgent-text">期限まであと${days}日</small>` : ""}
+        ${isDone ? `<small>完了日: ${formatDate(done.completed)}</small>` : ""}
       </div>
-      <button type="button" class="btn-secondary deadline-complete-btn ${done && done.date === service.end ? "undo" : ""}" data-deadline-complete="${escapeHtml(service.completeKey)}" data-deadline-date="${escapeHtml(service.end || "")}">
-        ${done && done.date === service.end ? "もとに戻す" : "完了"}
+      <button type="button" class="btn-secondary deadline-complete-btn ${isDone ? "undo" : ""}" data-deadline-complete="${escapeHtml(service.completeKey)}" data-deadline-date="${escapeHtml(service.end || "")}">
+        ${isDone ? "確認を戻す" : "期限確認済"}
       </button>
+    </div>
+  `;
+}
+
+function historyHtml(user) {
+  const history = Array.isArray(user.history) ? [...user.history].reverse() : [];
+  if (!history.length) {
+    return '<div class="empty-state">履歴はまだありません。</div>';
+  }
+  return `
+    <div class="history-list">
+      ${history.map(item => `
+        <div class="history-line">
+          <time>${escapeHtml(formatDateTime(item.at))}</time>
+          <strong>${escapeHtml(item.action || "-")}</strong>
+          <span>${escapeHtml(item.detail || "")}</span>
+        </div>
+      `).join("")}
     </div>
   `;
 }
@@ -1007,11 +1123,13 @@ function toggleDeadline(userId, key, date) {
   user.deadlineCompletions = user.deadlineCompletions || {};
   if (user.deadlineCompletions[key]?.date === date) {
     delete user.deadlineCompletions[key];
+    addHistory(user, "期限完了を取消", `${key} / ${formatDate(date)}`);
   } else {
     user.deadlineCompletions[key] = {
       date,
       completed: new Date().toISOString().slice(0, 10)
     };
+    addHistory(user, "期限完了", `${key} / ${formatDate(date)}`);
   }
   upsertUser(user);
   renderDashboard();
@@ -1027,6 +1145,7 @@ function updateTaskFromCheckbox(userId, key, done) {
   user.checks[key].done = done;
   user.checks[key].completed = done ? new Date().toISOString().slice(0, 10) : "";
   user.checks[key].completedForDate = done ? dueDate : "";
+  addHistory(user, done ? "更新手続き完了" : "更新手続き取消", `${TASK_LABELS[key] || key} / ${formatDate(dueDate)}`);
   upsertUser(user);
   renderDashboard();
   showDetail(userId);
@@ -1042,6 +1161,7 @@ function toggleRenewalStep(userId, key) {
   user.checks[key].done = done;
   user.checks[key].completed = done ? new Date().toISOString().slice(0, 10) : "";
   user.checks[key].completedForDate = done ? dueDate : "";
+  addHistory(user, done ? "更新手続き完了" : "更新手続き取消", `${TASK_LABELS[key] || key} / ${formatDate(dueDate)}`);
   upsertUser(user);
   renderDashboard();
 }
@@ -1187,10 +1307,18 @@ function init() {
   });
   $("#user-form").addEventListener("submit", event => {
     event.preventDefault();
+    syncEraInputsToNative($("#user-form"));
     const user = collectForm();
     if (!user.name) {
       alert("氏名は必須です。");
       return;
+    }
+  const wasNew = !getUser(user.id);
+    const previous = getUser(user.id);
+    const previousStatus = previous?.status || "active";
+    addHistory(user, wasNew ? "個人シート新規作成" : "個人シート更新", `計画相談期限: ${formatDate(user.planEnd)}`);
+    if (!wasNew && previousStatus !== user.status) {
+      addHistory(user, "利用状態変更", `${USER_STATUS_LABELS[previousStatus] || previousStatus} → ${USER_STATUS_LABELS[user.status] || user.status}`);
     }
     upsertUser(user);
     showDetail(user.id);
@@ -1208,13 +1336,6 @@ function init() {
     const file = event.target.files && event.target.files[0];
     if (file) importCsv(file);
     event.target.value = "";
-  });
-  $("#btn-clear").addEventListener("click", () => {
-    if (confirm("全データを削除します。元に戻せません。よろしいですか？")) {
-      localStorage.removeItem(STORAGE_KEY);
-      renderDashboard();
-      renderBackup();
-    }
   });
   renderDashboard();
 }

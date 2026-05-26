@@ -2,6 +2,7 @@
   --bg: #f5f7fb;
   --card: #ffffff;
   --soft: #f9fbff;
+  --panel: #f7f9fc;
   --text: #172033;
   --muted: #657186;
   --line: #dce3ee;
@@ -44,13 +45,14 @@ textarea {
   gap: 24px;
   padding: 18px 32px;
   color: #fff;
-  background: linear-gradient(135deg, #174a84, #2572b8);
+  background: linear-gradient(135deg, #133d6f, #2368a8);
   box-shadow: 0 8px 24px rgba(16, 45, 82, 0.2);
 }
 
 .app-header h1 {
   margin: 0;
-  font-size: 22px;
+  font-size: 21px;
+  line-height: 1.35;
 }
 
 .eyebrow {
@@ -166,16 +168,16 @@ main {
 .home-split-dashboard {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 16px;
   align-items: start;
 }
 
 .home-panel {
-  min-height: 520px;
+  min-height: 560px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 14px;
-  background: var(--card);
+  padding: 16px;
+  background: linear-gradient(180deg, #ffffff, var(--panel));
   box-shadow: var(--shadow);
 }
 
@@ -193,13 +195,15 @@ main {
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+  padding-bottom: 12px;
 }
 
 .board-title h3 {
   margin: 0;
   color: var(--primary-dark);
-  font-size: 18px;
+  font-size: 19px;
 }
 
 .board-title p {
@@ -225,13 +229,20 @@ main {
   border: 1px solid var(--line);
   border-left: 6px solid var(--info);
   border-radius: 8px;
-  padding: 10px;
-  background: var(--soft);
+  padding: 9px;
+  background: #fff;
 }
 
 .monitoring-person-card.active {
   border-left-color: var(--danger);
   background: #fff6f6;
+}
+
+.monitoring-person-card.inactive,
+.renewal-person-card.inactive,
+.personal-sheet-card.inactive {
+  border-left-color: var(--muted);
+  opacity: 0.72;
 }
 
 .monitoring-person-name {
@@ -247,7 +258,7 @@ main {
 
 .monitoring-status {
   border: 1px solid #c8d6e8;
-  border-radius: 6px;
+  border-radius: 999px;
   padding: 9px 10px;
   color: var(--primary-dark);
   background: #eef6ff;
@@ -269,9 +280,9 @@ main {
   gap: 10px;
   border: 1px solid var(--line);
   border-left: 6px solid var(--info);
-  border-radius: 12px;
-  padding: 10px;
-  background: var(--soft);
+  border-radius: 8px;
+  padding: 9px;
+  background: #fff;
 }
 
 .recipient-panel .renewal-person-card {
@@ -303,7 +314,7 @@ main {
 .renewal-person-name,
 .task-tag-name {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 10px 12px;
   color: var(--primary-dark);
   background: #fff;
@@ -314,7 +325,7 @@ main {
 
 .renewal-month-badge {
   border: 1px solid #c8d6e8;
-  border-radius: 8px;
+  border-radius: 6px;
   padding: 9px 12px;
   color: var(--primary-dark);
   background: #eef6ff;
@@ -334,7 +345,7 @@ main {
 .task-tag-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 7px;
   min-width: 0;
 }
 
@@ -344,8 +355,8 @@ main {
   align-items: center;
   gap: 5px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 6px;
+  padding: 8px 9px;
   color: var(--text);
   background: #fff;
   white-space: nowrap;
@@ -377,19 +388,20 @@ main {
 }
 
 .renewal-step-tag.done {
-  border-color: #f0b7b7;
-  color: #8f1717;
-  background: #fff1f1;
+  border-color: #b9dfc8;
+  color: #17613c;
+  background: #f3fbf6;
 }
 
 .renewal-step-tag.done b {
   color: #fff;
-  background: var(--danger);
+  background: var(--ok);
 }
 
 .renewal-step-tag.pending-alert {
   border-color: #e60012;
-  background: #fffafa;
+  color: #8f1717;
+  background: #fff1f1;
 }
 
 .summary-card {
@@ -686,6 +698,11 @@ fieldset.section,
   background: linear-gradient(180deg, #ffffff, #f7fbff);
 }
 
+.task-priority-card.renewal-urgent {
+  border-left-color: var(--danger);
+  background: linear-gradient(180deg, #fff8f8, #ffffff);
+}
+
 .detail-top-grid {
   display: grid;
   grid-template-columns: minmax(420px, 0.95fr) minmax(420px, 1.05fr);
@@ -694,6 +711,42 @@ fieldset.section,
 
 .deadline-summary-card {
   border-left: 8px solid var(--info);
+}
+
+.deadline-summary-card.renewal-urgent {
+  border-left-color: var(--danger);
+}
+
+.renewal-alert-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 14px;
+  border: 1px solid #f1b7b7;
+  border-radius: 14px;
+  padding: 12px 14px;
+  color: var(--danger);
+  background: #fff0f0;
+  font-weight: 900;
+}
+
+.renewal-alert-note strong {
+  font-size: 18px;
+  white-space: nowrap;
+}
+
+.renewal-alert-note span {
+  color: #6d1f1f;
+}
+
+.deadline-alert-text {
+  margin: -4px 0 12px;
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--danger);
+  background: #fff0f0;
+  font-weight: 900;
 }
 
 .deadline-main-grid {
@@ -798,6 +851,13 @@ fieldset.section,
   background: #f3fbf6;
 }
 
+.period-info.urgent,
+.service-line.urgent {
+  border-color: #efb4b4;
+  border-left: 5px solid var(--danger);
+  background: #fff4f4;
+}
+
 .deadline-complete-btn {
   flex: 0 0 auto;
   padding: 8px 12px;
@@ -817,6 +877,45 @@ fieldset.section,
   font-weight: 800;
 }
 
+.service-line-main small.urgent-text,
+.period-info small.urgent-text {
+  color: var(--danger);
+}
+
+.history-card {
+  border-left: 8px solid var(--primary);
+}
+
+.history-list {
+  display: grid;
+  gap: 8px;
+}
+
+.history-line {
+  display: grid;
+  grid-template-columns: 180px 160px 1fr;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--soft);
+}
+
+.history-line time {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.history-line strong {
+  color: var(--primary-dark);
+}
+
+.history-line span {
+  color: var(--muted);
+}
+
 .task-line {
   display: grid;
   grid-template-columns: 130px 1fr;
@@ -828,6 +927,12 @@ fieldset.section,
 
 .task-line.done {
   border-left-color: var(--ok);
+}
+
+.task-line.urgent {
+  border-color: #efb4b4;
+  border-left-color: var(--danger);
+  background: #fff4f4;
 }
 
 .task-line p,
@@ -864,6 +969,10 @@ fieldset.section,
   margin-top: 4px;
   color: var(--primary-dark);
   font-weight: 800;
+}
+
+.task-line.urgent .task-line-body small {
+  color: var(--danger);
 }
 
 fieldset.section {
@@ -1076,6 +1185,13 @@ textarea:focus {
   padding: 20px;
 }
 
+.backup-note {
+  max-width: 760px;
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .file-label {
   display: inline-flex;
   align-items: center;
@@ -1101,6 +1217,7 @@ textarea:focus {
   .personal-sheet-card,
   .monitoring-person-card,
   .renewal-person-card,
+  .history-line,
   .task-tag-row,
   .task-line,
   .service-row,

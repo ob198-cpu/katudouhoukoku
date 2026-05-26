@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>福祉利用者管理システム</title>
-  <link rel="stylesheet" href="style.css?v=20260526-date-labels">
+  <title>受給者証・サービス更新期限管理システム</title>
+  <link rel="stylesheet" href="style.css?v=20260526-deep-check">
 </head>
 <body>
   <header class="app-header">
     <div>
-      <p class="eyebrow">Welfare Management</p>
-      <h1>福祉利用者管理システム</h1>
+      <p class="eyebrow">Renewal Deadline Board</p>
+      <h1>受給者証・サービス更新期限管理システム</h1>
     </div>
     <nav class="tabs" aria-label="主要メニュー">
       <button class="tab-btn active" data-view="dashboard">ダッシュボード</button>
@@ -24,8 +24,8 @@
     <section id="view-dashboard" class="view active">
       <div class="view-header">
         <div>
-          <h2>ダッシュボード</h2>
-          <p class="muted">モニタリングと受給者証更新を左右に分けて確認します。</p>
+          <h2>更新期限ダッシュボード</h2>
+          <p class="muted">期限30日前から対象者を赤く表示し、更新手続きの抜け漏れを防ぎます。</p>
         </div>
       </div>
 
@@ -33,7 +33,7 @@
         <section class="home-panel monitoring-panel" aria-labelledby="monitoring-board-title">
           <div class="board-title">
             <div>
-              <h3 id="monitoring-board-title">モニタリング</h3>
+              <h3 id="monitoring-board-title">モニタリング月</h3>
               <p class="muted">当月対象者を赤く表示します。</p>
             </div>
             <span class="count-badge" id="count-monitoring">0</span>
@@ -44,8 +44,8 @@
         <section class="home-panel recipient-panel" aria-labelledby="renewal-board-title">
           <div class="board-title">
             <div>
-              <h3 id="renewal-board-title">受給者証</h3>
-              <p class="muted">月初に対象者が赤くなります。手続きはタグを押すと済になります。</p>
+              <h3 id="renewal-board-title">受給者証・サービス更新</h3>
+              <p class="muted">期限30日前から対象者が赤くなります。手続きはタグを押すと済になります。</p>
             </div>
             <span class="count-badge" id="count-renewal">0</span>
           </div>
@@ -115,6 +115,14 @@
             <label>電話番号<input type="tel" id="phone" placeholder="例: 011-000-0000"></label>
             <label class="span-2">住所<input type="text" id="address"></label>
             <label>受給者証番号<input type="text" id="recipient-no"></label>
+            <label>利用状態
+              <select id="user-status">
+                <option value="active">利用中</option>
+                <option value="paused">停止</option>
+                <option value="ended">終了</option>
+                <option value="hidden">非表示</option>
+              </select>
+            </label>
           </div>
         </fieldset>
 
@@ -251,10 +259,10 @@
       </div>
       <div class="backup-box">
         <p>登録件数: <strong id="record-count">0</strong> 件</p>
+        <p class="backup-note">この画面のデータはブラウザ内に保存されています。定期的にCSVエクスポートで控えを残してください。</p>
         <div class="actions">
           <button class="btn-primary" id="btn-export">CSVエクスポート（Excel用）</button>
           <label class="btn-secondary file-label">CSVインポート<input type="file" id="import-file" accept=".csv,text/csv" hidden></label>
-          <button class="btn-danger" id="btn-clear">全データ削除</button>
         </div>
       </div>
     </section>
@@ -280,6 +288,6 @@
     </div>
   </template>
 
-  <script src="app.js?v=20260526-date-labels"></script>
+  <script src="app.js?v=20260526-deep-check"></script>
 </body>
 </html>
