@@ -163,6 +163,235 @@ main {
   margin-bottom: 18px;
 }
 
+.home-split-dashboard {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.home-panel {
+  min-height: 520px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.renewal-board {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  margin-bottom: 18px;
+  padding: 16px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.board-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.board-title h3 {
+  margin: 0;
+  color: var(--primary-dark);
+  font-size: 18px;
+}
+
+.board-title p {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.renewal-card-list {
+  display: grid;
+  gap: 10px;
+}
+
+.monitoring-card-list {
+  display: grid;
+  gap: 10px;
+}
+
+.monitoring-person-card {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.8fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--info);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--soft);
+}
+
+.monitoring-person-card.active {
+  border-left-color: var(--danger);
+  background: #fff6f6;
+}
+
+.monitoring-person-name {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--primary-dark);
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  font-weight: 900;
+}
+
+.monitoring-status {
+  border: 1px solid #c8d6e8;
+  border-radius: 6px;
+  padding: 9px 10px;
+  color: var(--primary-dark);
+  background: #eef6ff;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.monitoring-status.alert {
+  border-color: #b91010;
+  color: #fff;
+  background: #e60012;
+}
+
+.renewal-person-card {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.55fr) auto minmax(0, 2.4fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--info);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--soft);
+}
+
+.recipient-panel .renewal-person-card {
+  grid-template-columns: minmax(92px, 0.35fr) minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.recipient-panel .renewal-person-name {
+  grid-row: span 2;
+}
+
+.recipient-panel .renewal-month-badge {
+  justify-self: start;
+}
+
+.recipient-panel .renewal-step-tags {
+  grid-column: 2;
+}
+
+.renewal-person-card.active {
+  border-left-color: var(--danger);
+  background: #fff6f6;
+}
+
+.renewal-person-card.complete {
+  border-left-color: var(--ok);
+}
+
+.renewal-person-name,
+.task-tag-name {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--primary-dark);
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  font-weight: 900;
+}
+
+.renewal-month-badge {
+  border: 1px solid #c8d6e8;
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--primary-dark);
+  background: #eef6ff;
+  white-space: nowrap;
+  font-size: 12px;
+  text-align: center;
+  font-weight: 900;
+}
+
+.renewal-month-badge.alert {
+  border-color: #b91010;
+  color: #fff;
+  background: #e60012;
+}
+
+.renewal-step-tags,
+.task-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.renewal-step-tag,
+.task-mini-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: #fff;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.renewal-step-tag {
+  cursor: pointer;
+}
+
+.renewal-step-tag span {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--primary);
+  font-size: 11px;
+}
+
+.renewal-step-tag b {
+  border-radius: 999px;
+  padding: 2px 6px;
+  color: var(--muted);
+  background: var(--soft);
+  font-size: 11px;
+}
+
+.renewal-step-tag.done {
+  border-color: #f0b7b7;
+  color: #8f1717;
+  background: #fff1f1;
+}
+
+.renewal-step-tag.done b {
+  color: #fff;
+  background: var(--danger);
+}
+
+.renewal-step-tag.pending-alert {
+  border-color: #e60012;
+  background: #fffafa;
+}
+
 .summary-card {
   border: 1px solid var(--line);
   border-radius: 18px;
@@ -340,6 +569,35 @@ fieldset.section,
 .alert-item.warn {
   border-left-color: var(--warn);
   background: #fff8ed;
+}
+
+.task-tag-row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--info);
+  border-radius: 14px;
+  padding: 10px;
+  background: var(--soft);
+}
+
+.task-tag-row.urgent {
+  border-left-color: var(--danger);
+  background: #fff4f4;
+}
+
+.task-mini-tag {
+  border-color: #cbd8ea;
+  color: var(--primary-dark);
+  background: #fff;
+}
+
+.task-mini-tag.urgent {
+  border-color: #efb4b4;
+  color: var(--danger);
+  background: #fffafa;
 }
 
 .alert-name {
@@ -657,6 +915,46 @@ textarea {
   background: #fff;
 }
 
+input.native-date {
+  display: none;
+}
+
+.wareki-date {
+  display: grid;
+  grid-template-columns: minmax(84px, 0.9fr) minmax(72px, 0.8fr) auto minmax(64px, 0.7fr) auto minmax(64px, 0.7fr) auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.wareki-date select,
+.wareki-date input {
+  min-width: 0;
+  padding: 10px 8px;
+}
+
+.wareki-date span {
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.wareki-date.wareki-has-caption::before {
+  content: attr(data-label);
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.btn-date-clear {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  color: var(--primary-dark);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 800;
+}
+
 input:focus,
 select:focus,
 textarea:focus {
@@ -677,13 +975,53 @@ textarea:focus {
 
 .service-row {
   display: grid;
-  grid-template-columns: 1.3fr 150px 150px 1fr 130px auto;
+  grid-template-columns: minmax(260px, 1fr) minmax(360px, 1fr) minmax(360px, 1fr) minmax(220px, 0.9fr);
   align-items: end;
-  gap: 8px;
+  gap: 12px;
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 10px;
   background: var(--soft);
+}
+
+.service-row .wareki-date {
+  grid-template-columns: 76px 60px 22px 58px 22px 58px 22px;
+  gap: 6px;
+}
+
+.service-row .wareki-date select,
+.service-row .wareki-date input {
+  padding: 10px 6px;
+}
+
+.service-row .wareki-date span {
+  text-align: center;
+  min-width: 22px;
+}
+
+.service-row .btn-date-clear {
+  display: none;
+}
+
+@media (max-width: 1500px) {
+  .service-row {
+    grid-template-columns: minmax(260px, 1fr) minmax(360px, 1fr);
+  }
+
+  .service-row .svc-office {
+    grid-column: auto;
+  }
+
+  .service-row .svc-level,
+  .service-row .btn-remove {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .service-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .task-box {
@@ -749,6 +1087,7 @@ textarea:focus {
   .dashboard-grid,
   .detail-grid,
   .detail-top-grid,
+  .home-split-dashboard,
   .summary-grid {
     grid-template-columns: 1fr;
   }
@@ -760,10 +1099,20 @@ textarea:focus {
 
   .alert-item,
   .personal-sheet-card,
+  .monitoring-person-card,
+  .renewal-person-card,
+  .task-tag-row,
   .task-line,
   .service-row,
+  .wareki-date,
   .grid-3 {
     grid-template-columns: 1fr;
+  }
+
+  .recipient-panel .renewal-person-name,
+  .recipient-panel .renewal-step-tags {
+    grid-column: auto;
+    grid-row: auto;
   }
 }
 

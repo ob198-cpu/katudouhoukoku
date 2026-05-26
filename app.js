@@ -2,6 +2,22 @@ const STORAGE_KEY = "welfare_users_static_v2";
 const LEGACY_STORAGE_KEYS = ["welfare_users_v1", "welfare_users_static_v1"];
 const WARN_DAYS = 60;
 const URGENT_DAYS = 30;
+const SINGLE_SERVICE_TARGETS = ["training1", "training2"];
+
+const RENEWAL_STEPS = [
+  { key: "document", formKey: "document", label: "書類作成", short: "書類作成" },
+  { key: "send", formKey: "send", label: "役所送付", short: "役所送付", legacyKey: "apply" },
+  { key: "confirm", formKey: "confirm", label: "本人受給者交付確認", short: "本人確認" },
+  { key: "pdf", formKey: "pdf", label: "受給者証の写し保存", short: "写し保存" },
+  { key: "updateInfo", formKey: "update", label: "個人シートの更新", short: "個人シート更新" }
+];
+
+const ERA_OPTIONS = [
+  { label: "令和", value: "reiwa", start: 2019, end: 2099 },
+  { label: "平成", value: "heisei", start: 1989, end: 2019 },
+  { label: "昭和", value: "showa", start: 1926, end: 1989 },
+  { label: "大正", value: "taisho", start: 1912, end: 1926 }
+];
 
 const MUNICIPALITY_OPTIONS = [
   { label: "札幌市（児）", ward: "児", code: "011008" },
@@ -31,11 +47,7 @@ const SERVICE_LABELS = {
   care2: "介護給付費情報2"
 };
 
-const TASK_LABELS = {
-  pdf: "受給者証の写し（PDF）の保管",
-  apply: "受給者証の更新手続き（役所への申請）",
-  updateInfo: "情報の更新（入力シートの有効期間等）"
-};
+const TASK_LABELS = Object.fromEntries(RENEWAL_STEPS.map(step => [step.key, step.label]));
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => Array.from(document.querySelectorAll(selector));
@@ -119,7 +131,18 @@ function deleteUser(id) {
 
 function normalizeUser(user) {
   user.checks = user.checks || {};
-  ["pdf", "apply", "updateInfo"].forEach(key => {
+  user.monitoringCycle = normalizeMonitoringCycle(user.monitoringCycle);
+  SINGLE_SERVICE_TARGETS.forEach(key => {
+    user[key] = (user[key] || []).slice(0, 1);
+  });
+  const legacyApply = user.checks.apply;
+  if (legacyApply && !user.checks.send) {
+    user.checks.send = { ...legacyApply };
+  }
+  RENEWAL_STEPS.forEach(step => {
+    user.checks[step.key] = user.checks[step.key] || {};
+  });
+  RENEWAL_STEPS.forEach(({ key }) => {
     const task = user.checks[key];
     if (task?.done && !task.completedForDate) {
       task.completedForDate = taskDueDate(user, key) || "";
@@ -147,7 +170,7 @@ function parseDate(value) {
 
 function formatDate(value) {
   if (!value) return "-";
-  return value.replaceAll("-", "/");
+  return toJapaneseEraDate(value) || value.replaceAll("-", "/");
 }
 
 function daysUntil(value) {
@@ -156,6 +179,171 @@ function daysUntil(value) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return Math.ceil((date.getTime() - today.getTime()) / 86400000);
+}
+
+function monthStart(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function renewalTargetDate(user) {
+  const candidates = deadlineCandidates(user)
+    .map(item => item.date)
+    .filter(Boolean)
+    .sort();
+  return candidates[0] || "";
+}
+
+function renewalMonthLabel(user) {
+  const target = parseDate(renewalTargetDate(user));
+  if (!target) return "受給者証更新";
+  return `${target.getMonth() + 1}月受給者証更新`;
+}
+
+function isRenewalMonthActive(user) {
+  const target = parseDate(renewalTargetDate(user));
+  if (!target) return false;
+  const now = new Date();
+  return monthStart(now).getTime() >= monthStart(target).getTime() && !isRenewalComplete(user);
+}
+
+function isRenewalStepDone(user, key) {
+  const task = user.checks?.[key] || {};
+  if (!task.done) return false;
+  const dueDate = taskDueDate(user, key);
+  return !dueDate || task.completedForDate === dueDate;
+}
+
+function isRenewalComplete(user) {
+  return RENEWAL_STEPS.every(step => isRenewalStepDone(user, step.key));
+}
+
+function normalizeMonitoringCycle(value) {
+  if (value === "毎月") return "1か月";
+  return value || "";
+}
+
+function monitoringCycleMonths(value) {
+  const normalized = normalizeMonitoringCycle(value);
+  if (normalized === "半年") return 6;
+  const match = normalized.match(/^([1-5])か月$/);
+  return match ? Number(match[1]) : 0;
+}
+
+function toJapaneseEraParts(value) {
+  const date = parseDate(value);
+  if (!date) return null;
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const era = ERA_OPTIONS.find(item => year >= item.start && year <= item.end);
+  if (!era) return null;
+  return {
+    era: era.value,
+    eraLabel: era.label,
+    year: year - era.start + 1,
+    month,
+    day
+  };
+}
+
+function toJapaneseEraDate(value) {
+  const parts = toJapaneseEraParts(value);
+  if (!parts) return "";
+  const eraYear = parts.year === 1 ? "元" : `${parts.year}`;
+  return `${parts.eraLabel}${eraYear}年${parts.month}月${parts.day}日`;
+}
+
+function toIsoDateFromEra(eraValue, eraYear, month, day) {
+  const era = ERA_OPTIONS.find(item => item.value === eraValue);
+  const yearNumber = Number(eraYear);
+  const monthNumber = Number(month);
+  const dayNumber = Number(day);
+  if (!era || !yearNumber || !monthNumber || !dayNumber) return "";
+  const fullYear = era.start + yearNumber - 1;
+  const date = new Date(fullYear, monthNumber - 1, dayNumber);
+  if (
+    date.getFullYear() !== fullYear ||
+    date.getMonth() + 1 !== monthNumber ||
+    date.getDate() !== dayNumber
+  ) {
+    return "";
+  }
+  return `${fullYear}-${String(monthNumber).padStart(2, "0")}-${String(dayNumber).padStart(2, "0")}`;
+}
+
+function setupJapaneseDateInputs(root = document) {
+  root.querySelectorAll('input[type="date"]:not([data-era-ready])').forEach(input => {
+    input.dataset.eraReady = "true";
+    input.classList.add("native-date");
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "wareki-date";
+    wrapper.dataset.dateFor = input.id || "";
+    if (input.dataset.dateLabel || input.title) {
+      wrapper.classList.add("wareki-has-caption");
+      wrapper.dataset.label = input.dataset.dateLabel || input.title;
+    }
+    wrapper.innerHTML = `
+      <select class="era-select" aria-label="元号">
+        ${ERA_OPTIONS.map(era => `<option value="${era.value}">${era.label}</option>`).join("")}
+      </select>
+      <input type="number" class="era-year" min="1" max="99" inputmode="numeric" aria-label="年">
+      <span>年</span>
+      <select class="era-month" aria-label="月">
+        ${Array.from({ length: 12 }, (_, index) => `<option value="${index + 1}">${index + 1}</option>`).join("")}
+      </select>
+      <span>月</span>
+      <select class="era-day" aria-label="日">
+        ${Array.from({ length: 31 }, (_, index) => `<option value="${index + 1}">${index + 1}</option>`).join("")}
+      </select>
+      <span>日</span>
+      <button type="button" class="btn-date-clear" aria-label="日付をクリア">クリア</button>
+    `;
+
+    input.insertAdjacentElement("afterend", wrapper);
+    const eraSelect = wrapper.querySelector(".era-select");
+    const eraYear = wrapper.querySelector(".era-year");
+    const eraMonth = wrapper.querySelector(".era-month");
+    const eraDay = wrapper.querySelector(".era-day");
+    const clear = wrapper.querySelector(".btn-date-clear");
+
+    const syncFromInput = () => {
+      const parts = toJapaneseEraParts(input.value);
+      if (!parts) {
+        eraSelect.value = "reiwa";
+        eraYear.value = "";
+        eraMonth.value = "1";
+        eraDay.value = "1";
+        return;
+      }
+      eraSelect.value = parts.era;
+      eraYear.value = parts.year;
+      eraMonth.value = String(parts.month);
+      eraDay.value = String(parts.day);
+    };
+
+    const syncToInput = () => {
+      input.value = toIsoDateFromEra(eraSelect.value, eraYear.value, eraMonth.value, eraDay.value);
+    };
+
+    [eraSelect, eraYear, eraMonth, eraDay].forEach(control => {
+      control.addEventListener("input", syncToInput);
+      control.addEventListener("change", syncToInput);
+    });
+    clear.addEventListener("click", () => {
+      input.value = "";
+      syncFromInput();
+    });
+    input.addEventListener("change", syncFromInput);
+    input._syncEraFromInput = syncFromInput;
+    syncFromInput();
+  });
+}
+
+function syncJapaneseDateInputs(root = document) {
+  root.querySelectorAll('input[type="date"][data-era-ready]').forEach(input => {
+    if (input._syncEraFromInput) input._syncEraFromInput();
+  });
 }
 
 function showView(name) {
@@ -190,6 +378,7 @@ function setupWardSelect() {
 }
 
 function addServiceRow(target, data = {}) {
+  if (SINGLE_SERVICE_TARGETS.includes(target) && $(`#${target}-rows .service-row`)) return;
   const node = $("#tpl-service-row").content.firstElementChild.cloneNode(true);
   const select = node.querySelector(".svc-type");
   select.innerHTML = '<option value="">サービス種別</option>' +
@@ -203,22 +392,30 @@ function addServiceRow(target, data = {}) {
     level.classList.remove("hidden");
     level.value = data.level || "";
   }
-  node.querySelector(".btn-remove").addEventListener("click", () => node.remove());
+  const removeButton = node.querySelector(".btn-remove");
+  if (SINGLE_SERVICE_TARGETS.includes(target)) {
+    removeButton.classList.add("hidden");
+  } else {
+    removeButton.addEventListener("click", () => node.remove());
+  }
   $(`#${target}-rows`).appendChild(node);
+  setupJapaneseDateInputs(node);
 }
 
 function collectServiceRows(target) {
-  return $$(`#${target}-rows .service-row`).map(row => ({
+  const rows = $$(`#${target}-rows .service-row`).map(row => ({
     type: row.querySelector(".svc-type").value,
     start: row.querySelector(".svc-start").value,
     end: row.querySelector(".svc-end").value,
     office: row.querySelector(".svc-office").value.trim(),
     level: target === "training2" ? row.querySelector(".svc-level").value : ""
   })).filter(row => row.type || row.start || row.end || row.office || row.level);
+  return SINGLE_SERVICE_TARGETS.includes(target) ? rows.slice(0, 1) : rows;
 }
 
 function clearForm() {
   $("#user-form").reset();
+  syncJapaneseDateInputs($("#user-form"));
   $("#user-id").value = "";
   $("#input-title").textContent = "入力シート";
   $("#btn-delete").style.display = "none";
@@ -226,6 +423,7 @@ function clearForm() {
   ["training1", "training2", "care1", "care2"].forEach(key => {
     $(`#${key}-rows`).innerHTML = "";
   });
+  SINGLE_SERVICE_TARGETS.forEach(key => addServiceRow(key));
 }
 
 function fillForm(user) {
@@ -242,11 +440,9 @@ function fillForm(user) {
   setValue("municipal-code", user.municipalCode);
   setValue("disability-type", user.disabilityType);
   setValue("recipient-start", user.recipientStart);
-  setValue("recipient-end", user.recipientEnd);
-  setValue("application-deadline", user.applicationDeadline);
   setValue("plan-start", user.planStart);
   setValue("plan-end", user.planEnd);
-  setValue("monitoring-cycle", user.monitoringCycle);
+  setValue("monitoring-cycle", normalizeMonitoringCycle(user.monitoringCycle));
   setValue("payment-cap", user.paymentCap);
   setValue("note", user.note);
 
@@ -260,28 +456,44 @@ function fillForm(user) {
     $("#custom-ward").value = user.wardName;
   }
 
-  ["training1", "training2", "care1", "care2"].forEach(key => {
+  SINGLE_SERVICE_TARGETS.forEach(key => {
+    $(`#${key}-rows`).innerHTML = "";
+    addServiceRow(key, (user[key] || [])[0] || {});
+  });
+  ["care1", "care2"].forEach(key => {
     (user[key] || []).forEach(row => addServiceRow(key, row));
   });
 
   const checks = user.checks || {};
-  $("#chk-pdf").checked = !!checks.pdf?.done;
-  setValue("pdf-requested", checks.pdf?.requested);
-  setValue("pdf-next-check", checks.pdf?.nextCheck);
-  setValue("pdf-completed", checks.pdf?.completed);
-  setValue("pdf-note", checks.pdf?.note);
-  $("#chk-apply").checked = !!checks.apply?.done;
-  setValue("apply-due", checks.apply?.due);
-  setValue("apply-completed", checks.apply?.completed);
-  setValue("apply-note", checks.apply?.note);
-  $("#chk-update-info").checked = !!checks.updateInfo?.done;
-  setValue("update-due", checks.updateInfo?.due);
-  setValue("update-completed", checks.updateInfo?.completed);
-  setValue("update-note", checks.updateInfo?.note);
+  RENEWAL_STEPS.forEach(step => fillRenewalTaskField(user, checks, step));
 }
 
 function setValue(id, value) {
-  $(`#${id}`).value = value || "";
+  const element = $(`#${id}`);
+  if (!element) return;
+  element.value = value || "";
+  if (element._syncEraFromInput) element._syncEraFromInput();
+}
+
+function fillRenewalTaskField(user, checks, step) {
+  const task = checks[step.key] || {};
+  const checkbox = $(`#chk-${step.formKey}`);
+  if (checkbox) checkbox.checked = isRenewalStepDone(user, step.key);
+  setValue(`${step.formKey}-completed`, task.completed);
+  setValue(`${step.formKey}-note`, task.note);
+}
+
+function collectRenewalTaskField(existing, step) {
+  const existingTask = existing.checks?.[step.key] || {};
+  const completed = $(`#${step.formKey}-completed`)?.value || "";
+  const done = !!$(`#chk-${step.formKey}`)?.checked || !!completed;
+  return {
+    done,
+    due: existingTask.due || "",
+    completed,
+    note: $(`#${step.formKey}-note`)?.value.trim() || "",
+    completedForDate: existingTask.completedForDate || ""
+  };
 }
 
 function collectForm() {
@@ -301,40 +513,17 @@ function collectForm() {
     municipalCode: $("#municipal-code").value.trim(),
     disabilityType: $("#disability-type").value,
     recipientStart: $("#recipient-start").value,
-    recipientEnd: $("#recipient-end").value,
-    applicationDeadline: $("#application-deadline").value,
+    recipientEnd: existing.recipientEnd || "",
+    applicationDeadline: existing.applicationDeadline || "",
     planStart: $("#plan-start").value,
     planEnd: $("#plan-end").value,
-    monitoringCycle: $("#monitoring-cycle").value,
+    monitoringCycle: normalizeMonitoringCycle($("#monitoring-cycle").value),
     paymentCap: $("#payment-cap").value.trim(),
     training1: collectServiceRows("training1"),
     training2: collectServiceRows("training2"),
     care1: collectServiceRows("care1"),
     care2: collectServiceRows("care2"),
-    checks: {
-      pdf: {
-        done: $("#chk-pdf").checked || !!$("#pdf-completed").value,
-        requested: $("#pdf-requested").value,
-        nextCheck: $("#pdf-next-check").value,
-        completed: $("#pdf-completed").value,
-        note: $("#pdf-note").value.trim(),
-        completedForDate: existing.checks?.pdf?.completedForDate || ""
-      },
-      apply: {
-        done: $("#chk-apply").checked || !!$("#apply-completed").value,
-        due: $("#apply-due").value,
-        completed: $("#apply-completed").value,
-        note: $("#apply-note").value.trim(),
-        completedForDate: existing.checks?.apply?.completedForDate || ""
-      },
-      updateInfo: {
-        done: $("#chk-update-info").checked || !!$("#update-completed").value,
-        due: $("#update-due").value,
-        completed: $("#update-completed").value,
-        note: $("#update-note").value.trim(),
-        completedForDate: existing.checks?.updateInfo?.completedForDate || ""
-      }
-    },
+    checks: Object.fromEntries(RENEWAL_STEPS.map(step => [step.key, collectRenewalTaskField(existing, step)])),
     deadlineCompletions: existing.deadlineCompletions || {},
     note: $("#note").value.trim(),
     updatedAt: new Date().toISOString()
@@ -357,16 +546,11 @@ function buildAlerts(users) {
       }
     });
 
-    const checks = user.checks || {};
-    if (shouldShowRenewalTask(user, "pdf")) {
-      tasks.push(taskAlert(user, "pdf", taskDueDate(user, "pdf")));
-    }
-    if (shouldShowRenewalTask(user, "apply")) {
-      tasks.push(taskAlert(user, "apply", taskDueDate(user, "apply")));
-    }
-    if (shouldShowRenewalTask(user, "updateInfo")) {
-      tasks.push(taskAlert(user, "updateInfo", taskDueDate(user, "updateInfo")));
-    }
+    RENEWAL_STEPS.forEach(step => {
+      if (shouldShowRenewalTask(user, step.key)) {
+        tasks.push(taskAlert(user, step.key, taskDueDate(user, step.key)));
+      }
+    });
 
     if (isMonitoringMonth(user)) {
       monitoring.push({
@@ -388,8 +572,6 @@ function buildAlerts(users) {
 
 function deadlineCandidates(user) {
   return [
-    { key: "recipient", title: "受給者証", date: user.recipientEnd, start: user.recipientStart },
-    { key: "application", title: "更新申請期限", date: user.applicationDeadline, start: user.recipientStart },
     { key: "plan", title: "計画相談", date: user.planEnd, start: user.planStart },
     ...["training1", "training2", "care1", "care2"].flatMap(key =>
       (user[key] || []).map((row, index) => ({
@@ -420,7 +602,7 @@ function deadlineAlert(user, item) {
     message: days < 0
       ? `${period}。期限を${Math.abs(days)}日超過しています。`
       : `${period}。期限まで残り${days}日です。`,
-    nextAction: item.title === "更新申請期限" ? "申請状況確認" : "期限更新確認"
+    nextAction: "期限更新確認"
   };
 }
 
@@ -448,19 +630,13 @@ function taskAlert(user, key, date) {
 }
 
 function shouldShowRenewalTask(user, key) {
-  const task = user.checks?.[key] || {};
-  if (!task.done) return true;
-  const dueDate = taskDueDate(user, key);
-  if (task.completedForDate && task.completedForDate === dueDate) return false;
-  const days = daysUntil(dueDate);
-  return days !== null && days <= URGENT_DAYS;
+  if (!isRenewalMonthActive(user)) return false;
+  return !isRenewalStepDone(user, key);
 }
 
 function taskDueDate(user, key) {
   const task = user.checks?.[key] || {};
-  if (key === "pdf") return task.nextCheck || task.due || user.recipientEnd || user.applicationDeadline;
-  if (key === "apply") return task.due || user.applicationDeadline || user.recipientEnd;
-  return task.due || user.recipientEnd || user.planEnd;
+  return task.due || renewalTargetDate(user) || user.planEnd;
 }
 
 function taskMessage(date, days, task, isRevived) {
@@ -473,36 +649,137 @@ function taskMessage(date, days, task, isRevived) {
 }
 
 function pendingTaskLabels(user) {
-  const checks = user.checks || {};
-  return [
-    !checks.pdf?.done ? TASK_LABELS.pdf : "",
-    !checks.apply?.done ? TASK_LABELS.apply : "",
-    !checks.updateInfo?.done ? TASK_LABELS.updateInfo : ""
-  ].filter(Boolean).join("、");
+  return RENEWAL_STEPS
+    .filter(step => !isRenewalStepDone(user, step.key))
+    .map(step => step.label)
+    .join("、");
 }
 
 function isMonitoringMonth(user) {
-  if (!user.monitoringCycle) return false;
-  if (user.monitoringCycle === "毎月") return true;
+  const cycleMonths = monitoringCycleMonths(user.monitoringCycle);
+  if (!cycleMonths) return false;
+  if (cycleMonths === 1) return true;
   const start = parseDate(user.planStart);
   if (!start) return false;
   const now = new Date();
   const diff = (now.getFullYear() - start.getFullYear()) * 12 + now.getMonth() - start.getMonth();
   if (diff < 0) return false;
-  return user.monitoringCycle === "3か月" ? diff % 3 === 0 : diff % 6 === 0;
+  return diff % cycleMonths === 0;
 }
 
 function renderDashboard() {
   const users = loadAll();
-  const alerts = buildAlerts(users);
-  renderAlertList("alert-recipient", alerts.recipient);
-  renderAlertList("alert-monitoring", alerts.monitoring);
-  renderAlertList("alert-task", alerts.tasks);
-  $("#count-recipient").textContent = alerts.recipient.length;
-  $("#count-monitoring").textContent = alerts.monitoring.length;
-  $("#count-task").textContent = alerts.tasks.length;
-  renderSummaryCard("summary-urgent", alerts.recipient.filter(item => item.level === "urgent"));
-  renderSummaryCard("summary-warn", alerts.recipient);
+  const monitoringUsers = users.filter(user => isMonitoringMonth(user));
+  renderMonitoringCards(users);
+  renderRenewalCards(users);
+  $("#count-monitoring").textContent = monitoringUsers.length;
+  $("#count-renewal").textContent = users.length;
+}
+
+function renderMonitoringCards(users) {
+  const container = $("#monitoring-card-list");
+  container.innerHTML = "";
+
+  if (!users.length) {
+    container.innerHTML = '<div class="empty-state">登録済みの利用者はいません。個人シートから新規作成してください。</div>';
+    return;
+  }
+
+  users.forEach(user => {
+    const active = isMonitoringMonth(user);
+    const card = document.createElement("article");
+    card.className = `monitoring-person-card ${active ? "active" : ""}`;
+    card.innerHTML = `
+      <button type="button" class="monitoring-person-name" data-monitoring-open="${escapeHtml(user.id)}">${escapeHtml(user.name || "(無名)")}</button>
+      <span class="monitoring-status ${active ? "alert" : ""}">${active ? "当月モニタリング" : escapeHtml(user.monitoringCycle || "未設定")}</span>
+    `;
+    card.querySelector("[data-monitoring-open]").addEventListener("click", () => showDetail(user.id));
+    container.appendChild(card);
+  });
+}
+
+function groupTaskAlerts(alerts) {
+  const groups = new Map();
+  alerts.forEach(alert => {
+    const id = alert.user.id;
+    if (!groups.has(id)) {
+      groups.set(id, {
+        user: alert.user,
+        level: alert.level,
+        days: alert.days,
+        tags: []
+      });
+    }
+    const group = groups.get(id);
+    if (alert.level === "urgent") group.level = "urgent";
+    if ((alert.days ?? 99999) < (group.days ?? 99999)) group.days = alert.days;
+    group.tags.push(alert);
+  });
+  return Array.from(groups.values()).sort((a, b) => (a.days ?? 99999) - (b.days ?? 99999));
+}
+
+function renderRenewalCards(users) {
+  const container = $("#renewal-card-list");
+  container.innerHTML = "";
+
+  if (!users.length) {
+    container.innerHTML = '<div class="empty-state">登録済みの利用者はいません。個人シートから新規作成してください。</div>';
+    return;
+  }
+
+  users.forEach(user => {
+    const active = isRenewalMonthActive(user);
+    const complete = isRenewalComplete(user);
+    const card = document.createElement("article");
+    card.className = `renewal-person-card ${active ? "active" : ""} ${complete ? "complete" : ""}`;
+    card.innerHTML = `
+      <button type="button" class="renewal-person-name" data-renewal-open="${escapeHtml(user.id)}">${escapeHtml(user.name || "(無名)")}</button>
+      <span class="renewal-month-badge ${active ? "alert" : ""}">${escapeHtml(renewalMonthLabel(user))}</span>
+      <div class="renewal-step-tags">
+        ${RENEWAL_STEPS.map((step, index) => renewalStepTagHtml(user, step, index)).join("")}
+      </div>
+    `;
+    card.querySelector("[data-renewal-open]").addEventListener("click", () => showDetail(user.id));
+    card.querySelectorAll("[data-renewal-step]").forEach(button => {
+      button.addEventListener("click", () => toggleRenewalStep(user.id, button.dataset.renewalStep));
+    });
+    container.appendChild(card);
+  });
+}
+
+function renewalStepTagHtml(user, step, index) {
+  const done = isRenewalStepDone(user, step.key);
+  const active = isRenewalMonthActive(user);
+  return `
+    <button type="button" class="renewal-step-tag ${done ? "done" : ""} ${active && !done ? "pending-alert" : ""}" data-renewal-step="${escapeHtml(step.key)}">
+      <span>${index + 1}</span>${escapeHtml(step.short)}<b>${done ? "済" : "未"}</b>
+    </button>
+  `;
+}
+
+function renderTaskTagList(containerId, groups) {
+  const container = $(`#${containerId}`);
+  container.innerHTML = "";
+  if (!groups.length) {
+    container.innerHTML = '<div class="empty-state">現在表示する対象はありません。</div>';
+    return;
+  }
+
+  groups.forEach(group => {
+    const item = document.createElement("div");
+    item.className = `task-tag-row ${group.level}`;
+    item.innerHTML = `
+      <button type="button" class="task-tag-name" data-id="${escapeHtml(group.user.id)}">${escapeHtml(group.user.name || "(無名)")}</button>
+      <div class="task-tag-list">
+        ${group.tags.map(alert => `<span class="task-mini-tag ${alert.level}">${escapeHtml(alert.title)}</span>`).join("")}
+      </div>
+      <button class="btn-primary btn-confirm" data-id="${escapeHtml(group.user.id)}">確認</button>
+    `;
+    item.querySelectorAll("[data-id]").forEach(button => {
+      button.addEventListener("click", () => showDetail(button.dataset.id));
+    });
+    container.appendChild(item);
+  });
 }
 
 function renderSummaryCard(prefix, alerts) {
@@ -576,7 +853,7 @@ function renderPersonalSheets() {
       <div class="personal-sheet-meta">
         <span>受給者証番号: ${escapeHtml(user.recipientNo || "-")}</span>
         <span>区: ${escapeHtml(user.wardName || "-")}</span>
-        <span>受給者証期限: ${formatDate(user.recipientEnd)}</span>
+        <span>計画相談期限: ${formatDate(user.planEnd)}</span>
         <span>モニタリング: ${escapeHtml(user.monitoringCycle || "-")}</span>
       </div>
       <div class="actions">
@@ -625,17 +902,13 @@ function detailHtml(user) {
             <h3>更新時タスク</h3>
             <p>チェックを押すとすぐ保存され、ダッシュボードにも反映されます。</p>
           </div>
-          <span>${taskDoneCount(user)} / 3 完了</span>
+          <span>${taskDoneCount(user)} / ${RENEWAL_STEPS.length} 完了</span>
         </div>
-        ${taskHtml("pdf", user.checks?.pdf)}
-        ${taskHtml("apply", user.checks?.apply)}
-        ${taskHtml("updateInfo", user.checks?.updateInfo)}
+        ${RENEWAL_STEPS.map(step => taskHtml(user, step)).join("")}
       </article>
       <article class="detail-card deadline-summary-card">
         <h3>期限情報・サービス期限まとめ</h3>
         <div class="deadline-main-grid">
-          ${periodInfo(user, "recipient", "受給者証", user.recipientStart, user.recipientEnd)}
-          ${periodInfo(user, "application", "更新申請期限", user.recipientStart, user.applicationDeadline)}
           ${periodInfo(user, "plan", "計画相談", user.planStart, user.planEnd)}
           ${info("モニタリング", user.monitoringCycle)}
         </div>
@@ -687,8 +960,10 @@ function periodInfo(user, key, label, start, end) {
   `;
 }
 
-function taskHtml(key, task = {}) {
-  const done = !!task.done;
+function taskHtml(user, step) {
+  const key = step.key;
+  const task = user.checks?.[key] || {};
+  const done = isRenewalStepDone(user, key);
   const date = task.nextCheck || task.due || task.completed || task.requested;
   return `
     <div class="task-line ${done ? "done" : "pending"}">
@@ -697,7 +972,7 @@ function taskHtml(key, task = {}) {
         <span>${done ? "完了" : "未完了"}</span>
       </label>
       <div class="task-line-body">
-        <strong>${escapeHtml(TASK_LABELS[key])}</strong>
+        <strong>${escapeHtml(step.label)}</strong>
         <p>状態: ${done ? "完了" : "未完了"} / 確認日: ${formatDate(date)} ${task.note ? ` / ${escapeHtml(task.note)}` : ""}</p>
         <small>完了後も、期限まであと30日になったら処理タスクに再表示します。</small>
       </div>
@@ -706,8 +981,7 @@ function taskHtml(key, task = {}) {
 }
 
 function taskDoneCount(user) {
-  const checks = user.checks || {};
-  return ["pdf", "apply", "updateInfo"].filter(key => checks[key]?.done).length;
+  return RENEWAL_STEPS.filter(step => isRenewalStepDone(user, step.key)).length;
 }
 
 function serviceHtml(service) {
@@ -758,6 +1032,20 @@ function updateTaskFromCheckbox(userId, key, done) {
   showDetail(userId);
 }
 
+function toggleRenewalStep(userId, key) {
+  const user = getUser(userId);
+  if (!user) return;
+  user.checks = user.checks || {};
+  user.checks[key] = user.checks[key] || {};
+  const done = !isRenewalStepDone(user, key);
+  const dueDate = taskDueDate(user, key);
+  user.checks[key].done = done;
+  user.checks[key].completed = done ? new Date().toISOString().slice(0, 10) : "";
+  user.checks[key].completedForDate = done ? dueDate : "";
+  upsertUser(user);
+  renderDashboard();
+}
+
 function renderBackup() {
   $("#record-count").textContent = loadAll().length;
 }
@@ -774,8 +1062,6 @@ function exportCsv() {
     "自治体コード",
     "障害者種別",
     "受給者証開始",
-    "受給者証終了",
-    "更新申請期限",
     "計画相談開始",
     "計画相談終了",
     "モニタリング",
@@ -793,8 +1079,6 @@ function exportCsv() {
     user.municipalCode,
     user.disabilityType,
     user.recipientStart,
-    user.recipientEnd,
-    user.applicationDeadline,
     user.planStart,
     user.planEnd,
     user.monitoringCycle,
@@ -878,6 +1162,7 @@ function parseCsv(text) {
 }
 
 function init() {
+  setupJapaneseDateInputs();
   setupWardSelect();
   $$(".tab-btn").forEach(button => button.addEventListener("click", () => {
     if (button.dataset.view === "input") clearForm();

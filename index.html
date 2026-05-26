@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>福祉利用者管理システム</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20260526-date-labels">
 </head>
 <body>
   <header class="app-header">
@@ -25,59 +25,32 @@
       <div class="view-header">
         <div>
           <h2>ダッシュボード</h2>
-          <p class="muted">カテゴリごとに「誰に、何を、いつまでに行うか」を確認します。</p>
+          <p class="muted">モニタリングと受給者証更新を左右に分けて確認します。</p>
         </div>
       </div>
 
-      <div class="summary-grid">
-        <div class="summary-card danger">
-          <div class="summary-heading">
-            <strong>期限切れ・30日以内</strong>
-            <span><b id="summary-urgent-count">0</b>件</span>
-          </div>
-          <div class="summary-links" id="summary-urgent-list"></div>
-        </div>
-        <div class="summary-card warn">
-          <div class="summary-heading">
-            <strong>60日以内に対応</strong>
-            <span><b id="summary-warn-count">0</b>件</span>
-          </div>
-          <div class="summary-links" id="summary-warn-list"></div>
-        </div>
-        <article class="category-card summary-recipient-card">
-          <div class="card-title">
+      <div class="home-split-dashboard">
+        <section class="home-panel monitoring-panel" aria-labelledby="monitoring-board-title">
+          <div class="board-title">
             <div>
-              <h3>受給者証の更新</h3>
-              <p>受給者証・計画相談・各サービスの期限、申請期限を見ます。</p>
-            </div>
-            <span class="count-badge" id="count-recipient">0</span>
-          </div>
-          <div id="alert-recipient" class="alert-list"></div>
-        </article>
-      </div>
-
-      <div class="dashboard-grid">
-        <article class="category-card wide">
-          <div class="card-title">
-            <div>
-              <h3>処理タスク</h3>
-              <p>PDF写し、申請、情報更新が完了するまで残ります。</p>
-            </div>
-            <span class="count-badge" id="count-task">0</span>
-          </div>
-          <div id="alert-task" class="alert-list"></div>
-        </article>
-
-        <article class="category-card">
-          <div class="card-title">
-            <div>
-              <h3>モニタリング</h3>
-              <p>毎月・3か月・半年の当月対象者です。</p>
+              <h3 id="monitoring-board-title">モニタリング</h3>
+              <p class="muted">当月対象者を赤く表示します。</p>
             </div>
             <span class="count-badge" id="count-monitoring">0</span>
           </div>
-          <div id="alert-monitoring" class="alert-list"></div>
-        </article>
+          <div id="monitoring-card-list" class="monitoring-card-list"></div>
+        </section>
+
+        <section class="home-panel recipient-panel" aria-labelledby="renewal-board-title">
+          <div class="board-title">
+            <div>
+              <h3 id="renewal-board-title">受給者証</h3>
+              <p class="muted">月初に対象者が赤くなります。手続きはタグを押すと済になります。</p>
+            </div>
+            <span class="count-badge" id="count-renewal">0</span>
+          </div>
+          <div id="renewal-card-list" class="renewal-card-list"></div>
+        </section>
       </div>
     </section>
 
@@ -170,8 +143,6 @@
               </select>
             </label>
             <label>受給者証 有効期間 開始<input type="date" id="recipient-start"></label>
-            <label>受給者証 有効期間 終了<input type="date" id="recipient-end"></label>
-            <label>更新申請期限<input type="date" id="application-deadline"></label>
           </div>
         </fieldset>
 
@@ -183,8 +154,11 @@
             <label>モニタリング月
               <select id="monitoring-cycle">
                 <option value="">選択してください</option>
-                <option value="毎月">毎月</option>
+                <option value="1か月">1か月</option>
+                <option value="2か月">2か月</option>
                 <option value="3か月">3か月</option>
+                <option value="4か月">4か月</option>
+                <option value="5か月">5か月</option>
                 <option value="半年">半年</option>
               </select>
             </label>
@@ -195,13 +169,11 @@
         <fieldset class="section">
           <legend>4. 訓練等給付費情報1</legend>
           <div class="service-rows" id="training1-rows"></div>
-          <button type="button" class="btn-add" data-target="training1">+ サービス追加</button>
         </fieldset>
 
         <fieldset class="section">
           <legend>5. 訓練等給付費情報2（共同生活援助）</legend>
           <div class="service-rows" id="training2-rows"></div>
-          <button type="button" class="btn-add" data-target="training2">+ サービス追加</button>
         </fieldset>
 
         <fieldset class="section">
@@ -220,26 +192,36 @@
           <legend>8. チェック機能（更新時タスク）</legend>
           <div class="check-grid">
             <div class="task-box">
-              <label><input type="checkbox" id="chk-pdf"> 受給者証の写し（PDF）の保管</label>
-              <div class="grid-3">
-                <label>依頼日<input type="date" id="pdf-requested"></label>
-                <label>次回確認日<input type="date" id="pdf-next-check"></label>
+              <label><input type="checkbox" id="chk-document"> 1. 書類作成</label>
+              <div class="grid-2">
+                <label>完了日<input type="date" id="document-completed"></label>
+                <label>メモ<input type="text" id="document-note"></label>
+              </div>
+            </div>
+            <div class="task-box">
+              <label><input type="checkbox" id="chk-send"> 2. 役所送付</label>
+              <div class="grid-2">
+                <label>完了日<input type="date" id="send-completed"></label>
+                <label>メモ<input type="text" id="send-note"></label>
+              </div>
+            </div>
+            <div class="task-box">
+              <label><input type="checkbox" id="chk-confirm"> 3. 本人受給者交付確認</label>
+              <div class="grid-2">
+                <label>完了日<input type="date" id="confirm-completed"></label>
+                <label>メモ<input type="text" id="confirm-note"></label>
+              </div>
+            </div>
+            <div class="task-box">
+              <label><input type="checkbox" id="chk-pdf"> 4. 受給者証の写し保存</label>
+              <div class="grid-2">
                 <label>完了日<input type="date" id="pdf-completed"></label>
-              </div>
-              <label>未回収理由・メモ<input type="text" id="pdf-note"></label>
-            </div>
-            <div class="task-box">
-              <label><input type="checkbox" id="chk-apply"> 受給者証の更新手続き（役所への申請）</label>
-              <div class="grid-3">
-                <label>期限<input type="date" id="apply-due"></label>
-                <label>完了日<input type="date" id="apply-completed"></label>
-                <label>メモ<input type="text" id="apply-note"></label>
+                <label>メモ<input type="text" id="pdf-note"></label>
               </div>
             </div>
             <div class="task-box">
-              <label><input type="checkbox" id="chk-update-info"> 情報の更新（入力シートの有効期間等）</label>
-              <div class="grid-3">
-                <label>期限<input type="date" id="update-due"></label>
+              <label><input type="checkbox" id="chk-update-info"> 5. 個人シートの更新</label>
+              <div class="grid-2">
                 <label>完了日<input type="date" id="update-completed"></label>
                 <label>メモ<input type="text" id="update-note"></label>
               </div>
@@ -281,8 +263,8 @@
   <template id="tpl-service-row">
     <div class="service-row">
       <select class="svc-type"></select>
-      <input type="date" class="svc-start" title="開始日">
-      <input type="date" class="svc-end" title="終了日">
+      <input type="date" class="svc-start" title="開始日" data-date-label="開始日">
+      <input type="date" class="svc-end" title="終了日" data-date-label="終了日">
       <input type="text" class="svc-office" placeholder="使用事業所">
       <select class="svc-level hidden">
         <option value="">区分種別</option>
@@ -298,6 +280,6 @@
     </div>
   </template>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=20260526-date-labels"></script>
 </body>
 </html>
