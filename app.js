@@ -283,6 +283,60 @@ function deadlineStatusText(value) {
   return `期限まであと${days}日`;
 }
 
+function deadlineOverviewStatus(value, completed) {
+  if (!value) return { className: "muted", badge: "未入力", text: "期限判定なし" };
+  if (completed) return { className: "done", badge: "確認済", text: "確認済" };
+  const days = daysUntil(value);
+  if (days === null) return { className: "muted", badge: "未入力", text: "期限判定なし" };
+  if (days <= URGENT_DAYS) return { className: "urgent", badge: "30日以内", text: deadlineStatusText(value) };
+  if (days <= WARN_DAYS) return { className: "warn", badge: "60日以内", text: deadlineStatusText(value) };
+  return { className: "ok", badge: "60日超", text: deadlineStatusText(value) };
+}
+
+function deadlineOverviewItems(user) {
+  const items = [
+    {
+      key: "recipient",
+      label: "受給者証",
+      detail: "有効期間終了",
+      start: user.recipientStart,
+      end: user.recipientEnd || "",
+      completed: false,
+      note: user.recipientEnd ? "" : "終了日未入力"
+    },
+    {
+      key: "plan",
+      label: "計画相談",
+      detail: "有効期間終了",
+      start: user.planStart,
+      end: user.planEnd,
+      completed: isDeadlineCompleted(user, { key: "plan", date: user.planEnd })
+    }
+  ];
+
+  ["training1", "training2", "care1", "care2"].forEach(key => {
+    (user[key] || []).forEach((row, index) => {
+      const completeKey = `service:${key}:${index}:${row.type || ""}:${row.start || ""}:${row.end || ""}`;
+      items.push({
+        key: completeKey,
+        label: row.type || SERVICE_LABELS[key],
+        detail: SERVICE_LABELS[key],
+        start: row.start,
+        end: row.end,
+        completed: isDeadlineCompleted(user, { key: completeKey, date: row.end }),
+        note: row.office || ""
+      });
+    });
+  });
+
+  return items.sort((a, b) => {
+    if (!a.end && !b.end) return 0;
+    if (!a.end) return 1;
+    if (!b.end) return -1;
+    return a.end.localeCompare(b.end);
+  });
+}
+
 function isRenewalMonthActive(user) {
   if (!isAlertEligible(user)) return false;
   const target = parseDate(renewalTargetDate(user));
@@ -1037,6 +1091,7 @@ function detailHtml(user) {
       <article class="detail-card deadline-summary-card ${renewalActive ? "renewal-urgent" : ""}">
         <h3>期限情報・サービス期限まとめ</h3>
         ${renewalActive ? `<p class="deadline-alert-text">${escapeHtml(alertLabel)}です。期限の確認と更新手続きを進めてください。</p>` : ""}
+        ${deadlineOverviewHtml(user)}
         <div class="deadline-main-grid">
           ${periodInfo(user, "plan", "計画相談", user.planStart, user.planEnd)}
           ${info("モニタリング", user.monitoringCycle)}
@@ -1070,6 +1125,36 @@ function detailHtml(user) {
       <h3>履歴確認</h3>
       ${historyHtml(user)}
     </article>
+  `;
+}
+
+function deadlineOverviewHtml(user) {
+  const items = deadlineOverviewItems(user);
+  return `
+    <div class="deadline-overview" aria-label="期限一覧">
+      <div class="deadline-overview-head">
+        <strong>期限一覧</strong>
+        <span>赤は30日以内・期限超過です。</span>
+      </div>
+      ${items.map(item => {
+        const status = deadlineOverviewStatus(item.end, item.completed);
+        return `
+          <div class="deadline-overview-row ${status.className}">
+            <div>
+              <strong>${escapeHtml(item.label)}</strong>
+              <span>${escapeHtml(item.detail || "")}</span>
+            </div>
+            <div>
+              <span>期間</span>
+              <strong>${formatDate(item.start)} から ${formatDate(item.end)} まで</strong>
+              ${item.note ? `<small>${escapeHtml(item.note)}</small>` : ""}
+            </div>
+            <em>${escapeHtml(status.text)}</em>
+            <b>${escapeHtml(status.badge)}</b>
+          </div>
+        `;
+      }).join("")}
+    </div>
   `;
 }
 
@@ -1387,3 +1472,4 @@ function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+

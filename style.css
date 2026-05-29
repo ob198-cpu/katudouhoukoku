@@ -286,20 +286,44 @@ main {
 }
 
 .recipient-panel .renewal-person-card {
-  grid-template-columns: minmax(92px, 0.35fr) minmax(0, 1fr);
-  align-items: stretch;
+  grid-template-columns: minmax(92px, 0.24fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
 }
 
 .recipient-panel .renewal-person-name {
-  grid-row: span 2;
+  grid-row: auto;
+  min-height: 44px;
+  padding: 8px 10px;
 }
 
 .recipient-panel .renewal-month-badge {
   justify-self: start;
+  padding: 8px 10px;
 }
 
 .recipient-panel .renewal-step-tags {
-  grid-column: 2;
+  grid-column: auto;
+  flex-wrap: nowrap;
+  gap: 5px;
+  overflow-x: auto;
+  padding-bottom: 1px;
+}
+
+.recipient-panel .renewal-step-tag {
+  gap: 4px;
+  padding: 7px 8px;
+  font-size: 12px;
+}
+
+.recipient-panel .renewal-step-tag span {
+  width: 17px;
+  height: 17px;
+  font-size: 10px;
+}
+
+.recipient-panel .renewal-step-tag b {
+  padding: 2px 5px;
 }
 
 .renewal-person-card.active {
@@ -747,6 +771,117 @@ fieldset.section,
   color: var(--danger);
   background: #fff0f0;
   font-weight: 900;
+}
+
+.deadline-overview {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.deadline-overview-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px;
+}
+
+.deadline-overview-head strong {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.deadline-overview-head span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.deadline-overview-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(210px, 1.35fr) minmax(120px, 0.75fr) 92px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--info);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.deadline-overview-row strong,
+.deadline-overview-row span,
+.deadline-overview-row small {
+  display: block;
+}
+
+.deadline-overview-row span,
+.deadline-overview-row small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.deadline-overview-row em {
+  color: var(--ink);
+  font-style: normal;
+  font-weight: 900;
+}
+
+.deadline-overview-row b {
+  justify-self: end;
+  border-radius: 999px;
+  padding: 6px 9px;
+  color: #fff;
+  background: var(--info);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.deadline-overview-row.urgent {
+  border-color: #efb4b4;
+  border-left-color: var(--danger);
+  background: #fff4f4;
+}
+
+.deadline-overview-row.urgent em {
+  color: var(--danger);
+}
+
+.deadline-overview-row.urgent b {
+  background: var(--danger);
+}
+
+.deadline-overview-row.warn {
+  border-left-color: var(--warn);
+  background: #fff8ed;
+}
+
+.deadline-overview-row.warn b {
+  background: var(--warn);
+}
+
+.deadline-overview-row.ok {
+  border-left-color: var(--info);
+}
+
+.deadline-overview-row.done {
+  border-left-color: var(--ok);
+  background: #f3fbf6;
+}
+
+.deadline-overview-row.done b {
+  background: var(--ok);
+}
+
+.deadline-overview-row.muted {
+  border-left-color: #9aa9bb;
+  background: var(--soft);
+}
+
+.deadline-overview-row.muted b {
+  background: #718096;
 }
 
 .deadline-main-grid {
@@ -1218,6 +1353,7 @@ textarea:focus {
   .monitoring-person-card,
   .renewal-person-card,
   .history-line,
+  .deadline-overview-row,
   .task-tag-row,
   .task-line,
   .service-row,

@@ -123,6 +123,9 @@ function loadApp(documentMock = createFormHarness()) {
       collectForm,
       csvCell,
       deadlineAlert,
+      deadlineOverviewHtml,
+      deadlineOverviewItems,
+      deadlineOverviewStatus,
       deadlineStatusText,
       isDeadlineCompleted,
       isDashboardVisible,
@@ -242,6 +245,25 @@ const pastServiceHtml = app.serviceHtml({
 });
 assert(pastServiceHtml.includes("期限超過 1日"), "サービス期限の超過表示が正しくない");
 assert(!pastServiceHtml.includes("期限まであと-"), "サービス期限に負の日数表示が残っている");
+
+const overviewUser = {
+  status: "active",
+  recipientStart: "2026-01-19",
+  recipientEnd: "",
+  planStart: "2026-02-01",
+  planEnd: soonIso,
+  training1: [{ type: "就労移行支援", start: "2026-01-05", end: yesterdayIso, office: "就労支援トライズ大通" }],
+  training2: [],
+  care1: [],
+  care2: [],
+  deadlineCompletions: {}
+};
+const overviewItems = app.deadlineOverviewItems(overviewUser);
+assert(overviewItems.some(item => item.label === "受給者証" && item.note === "終了日未入力"), "受給者証の終了日未入力が期限一覧に出ない");
+assert(overviewItems.some(item => item.label === "計画相談" && item.end === soonIso), "計画相談期限が期限一覧に出ない");
+assert(app.deadlineOverviewStatus(soonIso, false).badge === "30日以内", "30日以内の期限分類が正しくない");
+assert(app.deadlineOverviewHtml(overviewUser).includes("期限一覧"), "個人シート用の期限一覧HTMLが出力されない");
+assert(app.deadlineOverviewHtml(overviewUser).includes("就労移行支援"), "サービス期限が期限一覧HTMLに出力されない");
 
 const monitoringUser = { status: "active", planStart: "2026-02-01", monitoringCycle: "3か月" };
 assert(app.isMonitoringMonth(monitoringUser), "3か月ごとのモニタリング月判定が現在月で成立していない");
