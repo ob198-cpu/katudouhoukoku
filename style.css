@@ -286,7 +286,7 @@ main {
 }
 
 .recipient-panel .renewal-person-card {
-  grid-template-columns: minmax(92px, 0.24fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(112px, 0.24fr) minmax(112px, auto) minmax(0, 1fr);
   align-items: center;
   gap: 8px;
 }
@@ -304,25 +304,33 @@ main {
 
 .recipient-panel .renewal-step-tags {
   grid-column: auto;
-  flex-wrap: nowrap;
-  gap: 5px;
-  overflow-x: auto;
-  padding-bottom: 1px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  overflow: visible;
+  padding-bottom: 0;
 }
 
 .recipient-panel .renewal-step-tag {
   gap: 4px;
-  padding: 7px 8px;
-  font-size: 12px;
+  justify-content: center;
+  min-width: 0;
+  padding: 6px 5px;
+  white-space: normal;
+  line-height: 1.12;
+  text-align: center;
+  font-size: clamp(10px, 0.72vw, 12px);
 }
 
 .recipient-panel .renewal-step-tag span {
+  flex: 0 0 auto;
   width: 17px;
   height: 17px;
   font-size: 10px;
 }
 
 .recipient-panel .renewal-step-tag b {
+  flex: 0 0 auto;
   padding: 2px 5px;
 }
 
