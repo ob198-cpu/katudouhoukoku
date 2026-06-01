@@ -9,7 +9,7 @@ const RENEWAL_STEPS = [
   { key: "send", formKey: "send", label: "役所送付", short: "役所送付", legacyKey: "apply" },
   { key: "confirm", formKey: "confirm", label: "本人受給者交付確認", short: "本人確認" },
   { key: "pdf", formKey: "pdf", label: "受給者証の写し保存", short: "写し保存" },
-  { key: "updateInfo", formKey: "update", label: "個人シートの更新", short: "個人シート更新" }
+  { key: "updateInfo", formKey: "update", label: "個人シートの更新", short: "シート更新" }
 ];
 
 const ERA_OPTIONS = [
