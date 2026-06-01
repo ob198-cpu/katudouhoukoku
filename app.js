@@ -2,6 +2,7 @@ const STORAGE_KEY = "welfare_users_static_v2";
 const LEGACY_STORAGE_KEYS = ["welfare_users_v1", "welfare_users_static_v1"];
 const WARN_DAYS = 60;
 const URGENT_DAYS = 30;
+const HISTORY_LIMIT = 10000;
 const SINGLE_SERVICE_TARGETS = ["training1", "training2"];
 
 const RENEWAL_STEPS = [
@@ -13,7 +14,7 @@ const RENEWAL_STEPS = [
 ];
 
 const ERA_OPTIONS = [
-  { label: "令和", value: "reiwa", start: 2019, end: 2099 },
+  { label: "令和", value: "reiwa", start: 2019, end: 9999 },
   { label: "平成", value: "heisei", start: 1989, end: 2019 },
   { label: "昭和", value: "showa", start: 1926, end: 1989 },
   { label: "大正", value: "taisho", start: 1912, end: 1926 }
@@ -173,7 +174,7 @@ function deleteUser(id) {
 
 function normalizeUser(user) {
   user.checks = user.checks || {};
-  user.history = Array.isArray(user.history) ? user.history.slice(-100) : [];
+  user.history = Array.isArray(user.history) ? user.history.slice(-HISTORY_LIMIT) : [];
   user.status = user.status || "active";
   user.monitoringCycle = normalizeMonitoringCycle(user.monitoringCycle);
   SINGLE_SERVICE_TARGETS.forEach(key => {
@@ -206,7 +207,7 @@ function addHistory(user, action, detail = "") {
     action,
     detail
   });
-  user.history = user.history.slice(-100);
+  user.history = user.history.slice(-HISTORY_LIMIT);
 }
 
 function formatDateTime(value) {
