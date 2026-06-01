@@ -86,8 +86,8 @@ textarea {
 }
 
 main {
-  width: min(1440px, calc(100% - 40px));
-  margin: 28px auto 72px;
+  width: min(1720px, calc(100% - 16px));
+  margin: 18px auto 56px;
 }
 
 .view {
@@ -168,7 +168,7 @@ main {
 .home-split-dashboard {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 10px;
   align-items: start;
 }
 
@@ -176,7 +176,7 @@ main {
   min-height: 560px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 16px;
+  padding: 10px;
   background: linear-gradient(180deg, #ffffff, var(--panel));
   box-shadow: var(--shadow);
 }
@@ -286,54 +286,59 @@ main {
 }
 
 .recipient-panel .renewal-person-card {
-  grid-template-columns: minmax(112px, 0.24fr) minmax(112px, auto) minmax(0, 1fr);
+  grid-template-columns: 86px 100px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: 5px;
 }
 
 .recipient-panel .renewal-person-name {
   grid-row: auto;
-  min-height: 44px;
-  padding: 8px 10px;
+  min-height: 40px;
+  padding: 7px 8px;
+  font-size: 13px;
 }
 
 .recipient-panel .renewal-month-badge {
   justify-self: start;
-  padding: 8px 10px;
+  width: 100%;
+  padding: 8px 6px;
+  font-size: 11px;
 }
 
 .recipient-panel .renewal-step-tags {
   grid-column: auto;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(5, minmax(68px, 1fr));
+  gap: 4px;
   overflow: visible;
   padding-bottom: 0;
 }
 
 .recipient-panel .renewal-step-tag {
-  gap: 4px;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 18px;
+  gap: 3px;
   justify-content: center;
+  align-items: center;
   min-width: 0;
-  min-height: 40px;
-  padding: 5px 4px;
+  min-height: 34px;
+  padding: 4px 3px;
   overflow: hidden;
   white-space: nowrap;
   line-height: 1;
   text-align: center;
-  font-size: 11px;
-}
-
-.recipient-panel .renewal-step-tag span {
-  flex: 0 0 auto;
-  width: 17px;
-  height: 17px;
   font-size: 10px;
 }
 
+.recipient-panel .renewal-step-tag span {
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
+}
+
 .recipient-panel .renewal-step-tag b {
-  flex: 0 0 auto;
-  padding: 2px 5px;
+  padding: 1px 3px;
+  font-size: 10px;
 }
 
 .renewal-person-card.active {
