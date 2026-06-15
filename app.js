@@ -953,6 +953,7 @@ function monitoringTargetUsers(monthKey) {
   return loadAll()
     .filter(user => isDashboardVisible(user) && (
       isMonitoringDueInMonth(user, monthKey) ||
+      !!user.monitoringRecords?.[monthKey] ||
       monitoringRecordHasActivity(monitoringRecord(user, monthKey))
     ))
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
@@ -1130,7 +1131,7 @@ function renderMonitoringCards(users) {
 
   const monthKey = currentMonthKey();
   const targetUsers = users
-    .filter(user => isMonitoringDueInMonth(user, monthKey) || monitoringRecordHasActivity(monitoringRecord(user, monthKey)))
+    .filter(user => isMonitoringDueInMonth(user, monthKey) || !!user.monitoringRecords?.[monthKey] || monitoringRecordHasActivity(monitoringRecord(user, monthKey)))
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
 
   if (!targetUsers.length) {
