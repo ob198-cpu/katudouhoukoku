@@ -406,6 +406,16 @@ main {
   min-width: 920px;
 }
 
+.monitoring-notice-month-table {
+  min-width: 620px;
+}
+
+.monitoring-notice-month-table th:not(:first-child),
+.monitoring-notice-month-table td:not(:first-child) {
+  text-align: center;
+  width: 86px;
+}
+
 .monitoring-table th,
 .monitoring-table td {
   border-bottom: 1px solid var(--line);

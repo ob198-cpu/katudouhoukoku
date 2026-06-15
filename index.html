@@ -84,14 +84,14 @@
             <div class="monitoring-kpi-card"><span>実施未完了</span><strong id="monitoring-work-count">0件</strong></div>
             <div class="monitoring-kpi-card"><span>署名返送待ち</span><strong id="monitoring-return-count">0件</strong></div>
             <div class="monitoring-kpi-card"><span>請求未送信</span><strong id="monitoring-billing-count">0件</strong></div>
-            <div class="monitoring-kpi-card"><span>通知未送付</span><strong id="monitoring-notice-count">0件</strong></div>
+            <div class="monitoring-kpi-card"><span>受領通知未送付</span><strong id="monitoring-notice-count">0件</strong></div>
           </div>
         </div>
 
         <div class="monitoring-mode-tabs">
           <button type="button" class="monitoring-mode-tab active" data-monitoring-tab="work">1. 実施管理</button>
           <button type="button" class="monitoring-mode-tab" data-monitoring-tab="billing">2. 給付費請求</button>
-          <button type="button" class="monitoring-mode-tab" data-monitoring-tab="notice">3. 代理受領通知</button>
+          <button type="button" class="monitoring-mode-tab" data-monitoring-tab="notice">3. 給付費の受領通知</button>
         </div>
 
         <section class="monitoring-work-panel active" data-monitoring-panel="work">
@@ -145,22 +145,11 @@
 
         <section class="monitoring-work-panel" data-monitoring-panel="notice">
           <div class="monitoring-panel-head">
-            <h3 id="monitoring-notice-title">代理受領通知管理</h3>
-            <p class="muted">請求後の振込・代理受領通知を、モニタリング作業とは独立して月別に確認します。</p>
+            <h3 id="monitoring-notice-title">給付費の受領通知</h3>
+            <p class="muted">利用者ごとに、各月の受領通知を送付したか確認します。</p>
           </div>
           <div class="monitoring-table-wrap">
-            <table class="monitoring-table">
-              <thead>
-                <tr>
-                  <th>氏名</th>
-                  <th>通知月</th>
-                  <th>通知書作成</th>
-                  <th>利用者へ送付</th>
-                  <th>状態</th>
-                </tr>
-              </thead>
-              <tbody id="monitoring-notice-body"></tbody>
-            </table>
+            <div id="monitoring-notice-table"></div>
           </div>
         </section>
       </div>
@@ -377,6 +366,6 @@
     </div>
   </template>
 
-  <script src="app.js?v=20260615-billing-document-checks"></script>
+  <script src="app.js?v=20260615-notice-month-matrix"></script>
 </body>
 </html>

@@ -862,6 +862,15 @@ function monthKeyLabel(monthKey) {
   return `${year}年${Number(month)}月`;
 }
 
+function monthKeyShortLabel(monthKey) {
+  if (!monthKey) return "-";
+  return `${Number(monthKey.split("-")[1])}月`;
+}
+
+function noticeMonthKeys(startMonthKey, count = 6) {
+  return Array.from({ length: count }, (_, index) => addMonthsToKey(startMonthKey, index));
+}
+
 function isMonitoringDueInMonth(user, monthKey) {
   if (!isAlertEligible(user)) return false;
   const cycleMonths = monitoringCycleMonths(user.monitoringCycle);
@@ -983,14 +992,15 @@ function renderMonitoringManagement() {
   const noticeUsers = loadAll()
     .filter(user => isAlertEligible(user))
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
+  const noticeMonths = noticeMonthKeys(monthKey);
 
   $("#monitoring-work-title").textContent = `${monthKeyLabel(monthKey)} モニタリング実施管理`;
   $("#monitoring-billing-title").textContent = `${monthKeyLabel(monthKey)} 給付費請求管理（${monthKeyLabel(billingSourceMonth)}実施分）`;
-  $("#monitoring-notice-title").textContent = `${monthKeyLabel(monthKey)} 代理受領通知管理`;
+  $("#monitoring-notice-title").textContent = `${monthKeyLabel(monthKey)}からの給付費の受領通知`;
 
   const workRecords = workUsers.map(user => ({ user, record: monitoringRecord(user, monthKey) }));
   const billingRecords = billingUsers.map(user => ({ user, record: monitoringRecord(user, billingSourceMonth) }));
-  const noticeRecords = noticeUsers.map(user => ({ user, record: agencyNoticeRecord(user, monthKey) }));
+  const noticeRecords = noticeUsers.flatMap(user => noticeMonths.map(month => ({ user, month, record: agencyNoticeRecord(user, month) })));
 
   $("#monitoring-work-count").textContent = `${workRecords.filter(item => !monitoringWorkComplete(item.record)).length}件`;
   $("#monitoring-return-count").textContent = `${workRecords.filter(item => item.record.mailed && !item.record.returned).length}件`;
@@ -1030,18 +1040,27 @@ function renderMonitoringManagement() {
     `;
   }).join("") : '<tr><td colspan="9">前月のモニタリング対象者はいません。</td></tr>';
 
-  $("#monitoring-notice-body").innerHTML = noticeRecords.length ? noticeRecords.map(({ user, record }) => {
-    const status = agencyNoticeStatus(record);
-    return `
-      <tr class="monitoring-${status.type}">
-        <td><strong>${escapeHtml(user.name || "(無名)")}</strong></td>
-        <td>${escapeHtml(monthKeyLabel(monthKey))}</td>
-        ${monitoringCheckboxHtml(user, monthKey, "notice", "noticeCreated", record.noticeCreated)}
-        ${monitoringCheckboxHtml(user, monthKey, "notice", "noticeSent", record.noticeSent)}
-        <td><span class="monitoring-status-pill ${status.type}">${escapeHtml(status.text)}</span></td>
-      </tr>
-    `;
-  }).join("") : '<tr><td colspan="5">利用中の利用者はいません。</td></tr>';
+  $("#monitoring-notice-table").innerHTML = noticeUsers.length ? `
+    <table class="monitoring-table monitoring-notice-month-table">
+      <thead>
+        <tr>
+          <th>氏名</th>
+          ${noticeMonths.map(month => `<th>${escapeHtml(monthKeyShortLabel(month))}</th>`).join("")}
+        </tr>
+      </thead>
+      <tbody>
+        ${noticeUsers.map(user => `
+          <tr>
+            <td><strong>${escapeHtml(user.name || "(無名)")}</strong></td>
+            ${noticeMonths.map(month => {
+              const record = agencyNoticeRecord(user, month);
+              return monitoringCheckboxHtml(user, month, "notice", "noticeSent", record.noticeSent);
+            }).join("")}
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  ` : '<div class="empty-state">利用中の利用者はいません。</div>';
 }
 
 function updateMonitoringField(userId, monthKey, kind, field, checked) {
