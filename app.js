@@ -1006,7 +1006,13 @@ function renderMonitoringManagement() {
         <td><strong>${escapeHtml(user.name || "(無名)")}</strong></td>
         ${monitoringCheckboxHtml(user, monthKey, "work", "meetingRequired", record.meetingRequired, true)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "recordDone", record.recordDone)}
-        ${record.meetingRequired ? monitoringCheckboxHtml(user, monthKey, "work", "meetingDone", record.meetingDone) : '<td><span class="monitoring-status-pill done">不要</span></td>'}
+        ${record.meetingRequired ? monitoringCheckboxHtml(user, monthKey, "work", "meetingDone", record.meetingDone) : `
+          <td>
+            <button type="button" class="monitoring-restore-btn"
+              data-monitoring-restore-user="${escapeHtml(user.id)}"
+              data-monitoring-restore-month="${escapeHtml(monthKey)}">必要に戻す</button>
+          </td>
+        `}
         ${monitoringCheckboxHtml(user, monthKey, "work", "reportDone", record.reportDone)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "mailed", record.mailed)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "returned", record.returned)}
@@ -1710,6 +1716,17 @@ function init() {
       target.dataset.monitoringKind,
       target.dataset.monitoringField,
       target.dataset.monitoringInvert === "true" ? !target.checked : target.checked
+    );
+  });
+  $("#view-monitoring").addEventListener("click", event => {
+    const target = event.target.closest("[data-monitoring-restore-user]");
+    if (!target) return;
+    updateMonitoringField(
+      target.dataset.monitoringRestoreUser,
+      target.dataset.monitoringRestoreMonth,
+      "work",
+      "meetingRequired",
+      true
     );
   });
   $("#user-form").addEventListener("submit", event => {
