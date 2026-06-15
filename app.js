@@ -1072,16 +1072,16 @@ function renderMonitoringManagement() {
     return `
       <tr class="monitoring-${status.type}">
         <td><strong>${escapeHtml(user.name || "(無名)")}</strong></td>
+        <td><span class="monitoring-status-pill ${status.type}">${escapeHtml(status.text)}</span></td>
         ${monitoringCheckboxHtml(user, monthKey, "work", "recordDone", record.recordDone)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "meetingDone", record.meetingDone)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "reportDone", record.reportDone)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "mailed", record.mailed)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "returned", record.returned)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "officeSent", record.officeSent)}
-        <td><span class="monitoring-status-pill ${status.type}">${escapeHtml(status.text)}</span></td>
       </tr>
     `;
-  }).join("") : '<tr><td colspan="7">この月のモニタリング対象者はいません。</td></tr>';
+  }).join("") : '<tr><td colspan="8">この月のモニタリング対象者はいません。</td></tr>';
 
   $("#monitoring-billing-body").innerHTML = billingRecords.length ? billingRecords.map(({ user, record }) => {
     const status = monitoringBillingStatus(record);
@@ -1199,13 +1199,13 @@ function renderMonitoringCards(users) {
         <thead>
           <tr>
             <th>氏名</th>
-            <th>モニタリング記録作成</th>
-            <th>担当者会議録作成</th>
-            <th>モニタリング報告書作成</th>
-            <th>モニタリング報告書郵送</th>
-            <th>モニタリング報告書返送</th>
-            <th>写しを役所に郵送</th>
             <th>状態</th>
+            <th>記録作成</th>
+            <th>会議録作成</th>
+            <th>報告書作成</th>
+            <th>報告書郵送</th>
+            <th>報告書返送</th>
+            <th>写しを郵送</th>
           </tr>
         </thead>
         <tbody>
@@ -1216,13 +1216,13 @@ function renderMonitoringCards(users) {
             return `
               <tr class="monitoring-${status.type}">
                 <td><button type="button" class="monitoring-person-name inline-name" data-monitoring-open="${escapeHtml(user.id)}">${escapeHtml(user.name || "(無名)")}</button></td>
+                <td><span class="monitoring-status-pill ${status.type}">${escapeHtml(status.text)}</span></td>
                 ${monitoringCheckboxHtml(user, monthKey, "work", "recordDone", record.recordDone)}
                 ${monitoringCheckboxHtml(user, monthKey, "work", "meetingDone", record.meetingDone)}
                 ${monitoringCheckboxHtml(user, monthKey, "work", "reportDone", record.reportDone)}
                 ${monitoringCheckboxHtml(user, monthKey, "work", "mailed", record.mailed)}
                 ${monitoringCheckboxHtml(user, monthKey, "work", "returned", record.returned)}
                 ${monitoringCheckboxHtml(user, monthKey, "work", "officeSent", record.officeSent)}
-                <td><span class="monitoring-status-pill ${status.type}">${escapeHtml(status.text)}</span></td>
               </tr>
             `;
           }).join("")}
