@@ -462,7 +462,7 @@ main {
 
 .monitoring-notice-month-table th:first-child,
 .monitoring-notice-month-table td:first-child {
-  width: 160px;
+  width: 120px;
 }
 
 .monitoring-notice-month-table th:not(:first-child),

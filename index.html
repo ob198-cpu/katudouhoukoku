@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>受給者証・サービス更新期限管理システム</title>
-  <link rel="stylesheet" href="style.css?v=20260615-notice-name-width">
+  <link rel="stylesheet" href="style.css?v=20260615-notice-year">
 </head>
 <body>
   <header class="app-header">
@@ -170,14 +170,12 @@
             <p class="muted">利用者ごとに、各月の受領通知を送付したか確認します。</p>
           </div>
           <div class="monitoring-sub-toolbar">
-            <button type="button" class="btn-secondary" id="notice-prev-period">前の6か月</button>
-            <button type="button" class="btn-secondary" id="notice-next-period">次の6か月</button>
-            <label>表示開始月
+            <button type="button" class="btn-secondary" id="notice-prev-period">前年</button>
+            <button type="button" class="btn-secondary" id="notice-next-period">翌年</button>
+            <label>表示年
               <span class="month-picker">
                 <input type="number" id="notice-start-year" min="2020" max="2126" inputmode="numeric" aria-label="受領通知表示開始年">
                 <span>年</span>
-                <select id="notice-start-month-number" aria-label="受領通知表示開始月"></select>
-                <span>月</span>
               </span>
               <input type="hidden" id="notice-start-month">
             </label>
@@ -400,6 +398,6 @@
     </div>
   </template>
 
-  <script src="app.js?v=20260615-monitoring-all-users"></script>
+  <script src="app.js?v=20260615-notice-year"></script>
 </body>
 </html>

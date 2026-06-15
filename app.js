@@ -871,6 +871,22 @@ function noticeMonthKeys(startMonthKey, count = 6) {
   return Array.from({ length: count }, (_, index) => addMonthsToKey(startMonthKey, index));
 }
 
+function noticeYearFromControl() {
+  const yearInput = $("#notice-start-year");
+  const year = Number(yearInput?.value);
+  if (year && year >= 1900 && year <= 9999) return year;
+  return Number(currentMonthKey().split("-")[0]);
+}
+
+function setNoticeYear(year) {
+  const safeYear = Number(year) || Number(currentMonthKey().split("-")[0]);
+  const yearInput = $("#notice-start-year");
+  const hidden = $("#notice-start-month");
+  if (yearInput) yearInput.value = safeYear;
+  if (hidden) hidden.value = `${safeYear}-01`;
+  return safeYear;
+}
+
 function populateMonthSelect(select) {
   if (!select || select.options.length) return;
   select.innerHTML = Array.from({ length: 12 }, (_, index) => {
@@ -1019,7 +1035,8 @@ function renderMonitoringManagement() {
   const billingInput = $("#billing-source-month");
   if (billingInput && !billingInput.value) setMonthControl("billing-source", addMonthsToKey(monthKey, -1));
   const billingSourceMonth = syncMonthControl("billing-source") || addMonthsToKey(monthKey, -1);
-  const noticeStartMonth = syncMonthControl("notice-start") || monthKey;
+  const noticeYear = setNoticeYear(noticeYearFromControl());
+  const noticeStartMonth = `${noticeYear}-01`;
   const workUsers = monitoringTargetUsers(monthKey);
   const billingUsers = loadAll()
     .filter(user => isDashboardVisible(user) && (
@@ -1031,12 +1048,11 @@ function renderMonitoringManagement() {
   const noticeUsers = loadAll()
     .filter(user => isAlertEligible(user))
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
-  const noticeMonths = noticeMonthKeys(noticeStartMonth);
-  const noticeEndMonth = noticeMonths[noticeMonths.length - 1] || noticeStartMonth;
+  const noticeMonths = noticeMonthKeys(noticeStartMonth, 12);
 
   $("#monitoring-work-title").textContent = `${monthKeyLabel(monthKey)} モニタリング実施管理`;
   $("#monitoring-billing-title").textContent = `${monthKeyLabel(billingSourceMonth)}実施分 給付費請求管理`;
-  $("#monitoring-notice-title").textContent = `${monthKeyLabel(noticeStartMonth)}〜${monthKeyLabel(noticeEndMonth)} 給付費の受領通知`;
+  $("#monitoring-notice-title").textContent = `${noticeYear}年 1月〜12月 給付費の受領通知`;
 
   const workRecords = workUsers.map(user => ({ user, record: monitoringRecord(user, monthKey) }));
   const billingRecords = billingUsers.map(user => ({ user, record: monitoringRecord(user, billingSourceMonth) }));
@@ -1790,7 +1806,7 @@ function init() {
   });
   setMonthControl("monitoring", currentMonthKey());
   setMonthControl("billing-source", addMonthsToKey(currentMonthKey(), -1));
-  setMonthControl("notice-start", currentMonthKey());
+  setNoticeYear(Number(currentMonthKey().split("-")[0]));
   $("#monitoring-prev-month").addEventListener("click", () => {
     const next = addMonthsToKey(syncMonthControl("monitoring"), -1);
     setMonthControl("monitoring", next);
@@ -1821,17 +1837,17 @@ function init() {
     renderMonitoringManagement();
   }));
   $("#notice-prev-period").addEventListener("click", () => {
-    setMonthControl("notice-start", addMonthsToKey(syncMonthControl("notice-start"), -6));
+    setNoticeYear(noticeYearFromControl() - 1);
     renderMonitoringManagement();
   });
   $("#notice-next-period").addEventListener("click", () => {
-    setMonthControl("notice-start", addMonthsToKey(syncMonthControl("notice-start"), 6));
+    setNoticeYear(noticeYearFromControl() + 1);
     renderMonitoringManagement();
   });
-  ["notice-start-year", "notice-start-month-number"].forEach(id => $(`#${id}`).addEventListener("change", () => {
-    syncMonthControl("notice-start");
+  $("#notice-start-year").addEventListener("change", () => {
+    setNoticeYear(noticeYearFromControl());
     renderMonitoringManagement();
-  }));
+  });
   $$("[data-monitoring-tab]").forEach(button => {
     button.addEventListener("click", () => {
       $$("[data-monitoring-tab]").forEach(tab => tab.classList.remove("active"));
