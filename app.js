@@ -1007,8 +1007,7 @@ function agencyNoticeStatus(record) {
 
 function monitoringTargetUsers(monthKey) {
   return loadAll()
-    .filter(user => isDashboardVisible(user))
-    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
+    .filter(user => isDashboardVisible(user));
 }
 
 function monitoringCheckboxHtml(user, monthKey, kind, field, checked, invert = false) {
@@ -1043,11 +1042,9 @@ function renderMonitoringManagement() {
       isMonitoringDueInMonth(user, billingSourceMonth) ||
       !!user.monitoringRecords?.[billingSourceMonth] ||
       monitoringRecordHasActivity(monitoringRecord(user, billingSourceMonth))
-    ))
-    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
+    ));
   const noticeUsers = loadAll()
-    .filter(user => isAlertEligible(user))
-    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
+    .filter(user => isAlertEligible(user));
   const noticeMonths = noticeMonthKeys(noticeStartMonth, 12);
 
   $("#monitoring-work-title").textContent = `${monthKeyLabel(monthKey)} モニタリング実施管理`;
@@ -1186,7 +1183,7 @@ function renderMonitoringCards(users) {
   }
 
   const monthKey = currentMonthKey();
-  const targetUsers = [...users].sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
+  const targetUsers = [...users];
 
   if (!targetUsers.length) {
     container.innerHTML = '<div class="empty-state">当月のモニタリング対象者はいません。</div>';
