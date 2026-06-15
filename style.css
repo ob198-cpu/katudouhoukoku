@@ -457,12 +457,17 @@ main {
 
 .monitoring-notice-month-table {
   min-width: 620px;
+  table-layout: fixed;
+}
+
+.monitoring-notice-month-table th:first-child,
+.monitoring-notice-month-table td:first-child {
+  width: 160px;
 }
 
 .monitoring-notice-month-table th:not(:first-child),
 .monitoring-notice-month-table td:not(:first-child) {
   text-align: center;
-  width: 86px;
 }
 
 .monitoring-table th,
