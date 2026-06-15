@@ -169,6 +169,19 @@
             <h3 id="monitoring-notice-title">給付費の受領通知</h3>
             <p class="muted">利用者ごとに、各月の受領通知を送付したか確認します。</p>
           </div>
+          <div class="monitoring-sub-toolbar">
+            <button type="button" class="btn-secondary" id="notice-prev-period">前の6か月</button>
+            <button type="button" class="btn-secondary" id="notice-next-period">次の6か月</button>
+            <label>表示開始月
+              <span class="month-picker">
+                <input type="number" id="notice-start-year" min="2020" max="2126" inputmode="numeric" aria-label="受領通知表示開始年">
+                <span>年</span>
+                <select id="notice-start-month-number" aria-label="受領通知表示開始月"></select>
+                <span>月</span>
+              </span>
+              <input type="hidden" id="notice-start-month">
+            </label>
+          </div>
           <div class="monitoring-table-wrap">
             <div id="monitoring-notice-table"></div>
           </div>
@@ -387,6 +400,6 @@
     </div>
   </template>
 
-  <script src="app.js?v=20260615-billing-labels"></script>
+  <script src="app.js?v=20260615-notice-period"></script>
 </body>
 </html>

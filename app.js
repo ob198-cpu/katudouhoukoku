@@ -1022,16 +1022,18 @@ function renderMonitoringManagement() {
   const billingInput = $("#billing-source-month");
   if (billingInput && !billingInput.value) setMonthControl("billing-source", addMonthsToKey(monthKey, -1));
   const billingSourceMonth = syncMonthControl("billing-source") || addMonthsToKey(monthKey, -1);
+  const noticeStartMonth = syncMonthControl("notice-start") || monthKey;
   const workUsers = monitoringTargetUsers(monthKey);
   const billingUsers = monitoringTargetUsers(billingSourceMonth);
   const noticeUsers = loadAll()
     .filter(user => isAlertEligible(user))
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
-  const noticeMonths = noticeMonthKeys(monthKey);
+  const noticeMonths = noticeMonthKeys(noticeStartMonth);
+  const noticeEndMonth = noticeMonths[noticeMonths.length - 1] || noticeStartMonth;
 
   $("#monitoring-work-title").textContent = `${monthKeyLabel(monthKey)} モニタリング実施管理`;
   $("#monitoring-billing-title").textContent = `${monthKeyLabel(billingSourceMonth)}実施分 給付費請求管理`;
-  $("#monitoring-notice-title").textContent = `${monthKeyLabel(monthKey)}からの給付費の受領通知`;
+  $("#monitoring-notice-title").textContent = `${monthKeyLabel(noticeStartMonth)}〜${monthKeyLabel(noticeEndMonth)} 給付費の受領通知`;
 
   const workRecords = workUsers.map(user => ({ user, record: monitoringRecord(user, monthKey) }));
   const billingRecords = billingUsers.map(user => ({ user, record: monitoringRecord(user, billingSourceMonth) }));
@@ -1782,6 +1784,7 @@ function init() {
   });
   setMonthControl("monitoring", currentMonthKey());
   setMonthControl("billing-source", addMonthsToKey(currentMonthKey(), -1));
+  setMonthControl("notice-start", currentMonthKey());
   $("#monitoring-prev-month").addEventListener("click", () => {
     const next = addMonthsToKey(syncMonthControl("monitoring"), -1);
     setMonthControl("monitoring", next);
@@ -1809,6 +1812,18 @@ function init() {
   });
   ["billing-source-year", "billing-source-month-number"].forEach(id => $(`#${id}`).addEventListener("change", () => {
     syncMonthControl("billing-source");
+    renderMonitoringManagement();
+  }));
+  $("#notice-prev-period").addEventListener("click", () => {
+    setMonthControl("notice-start", addMonthsToKey(syncMonthControl("notice-start"), -6));
+    renderMonitoringManagement();
+  });
+  $("#notice-next-period").addEventListener("click", () => {
+    setMonthControl("notice-start", addMonthsToKey(syncMonthControl("notice-start"), 6));
+    renderMonitoringManagement();
+  });
+  ["notice-start-year", "notice-start-month-number"].forEach(id => $(`#${id}`).addEventListener("change", () => {
+    syncMonthControl("notice-start");
     renderMonitoringManagement();
   }));
   $$("[data-monitoring-tab]").forEach(button => {
