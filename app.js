@@ -1019,9 +1019,9 @@ function renderMonitoringManagement() {
       <tr class="monitoring-${status.type}">
         <td><strong>${escapeHtml(user.name || "(無名)")}</strong></td>
         <td>${escapeHtml(monthKeyLabel(billingSourceMonth))}</td>
-        <td>${record.recordDone ? "済" : "未"}</td>
-        <td>${record.meetingDone ? "済" : "未"}</td>
-        <td>${record.reportDone ? "済" : "未"}</td>
+        ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "recordDone", record.recordDone)}
+        ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "meetingDone", record.meetingDone)}
+        ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "reportDone", record.reportDone)}
         ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "addOn", record.addOn)}
         ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "billingDone", record.billingDone)}
         ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "billingSent", record.billingSent)}
