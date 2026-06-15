@@ -964,7 +964,8 @@ function monitoringWorkComplete(record) {
   return record.recordDone && record.meetingDone && record.reportDone && record.mailed && record.returned && record.officeSent;
 }
 
-function monitoringWorkStatus(record) {
+function monitoringWorkStatus(record, isTarget = true) {
+  if (!isTarget && !monitoringRecordHasActivity(record)) return { text: "対象外", type: "inactive" };
   if (monitoringWorkComplete(record)) return { text: "完了", type: "done" };
   if (record.mailed && !record.returned) return { text: "署名返送待ち", type: "wait" };
   if (record.returned && !record.officeSent) return { text: "役所送付待ち", type: "danger" };
@@ -990,11 +991,7 @@ function agencyNoticeStatus(record) {
 
 function monitoringTargetUsers(monthKey) {
   return loadAll()
-    .filter(user => isDashboardVisible(user) && (
-      isMonitoringDueInMonth(user, monthKey) ||
-      !!user.monitoringRecords?.[monthKey] ||
-      monitoringRecordHasActivity(monitoringRecord(user, monthKey))
-    ))
+    .filter(user => isDashboardVisible(user))
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
 }
 
@@ -1024,7 +1021,13 @@ function renderMonitoringManagement() {
   const billingSourceMonth = syncMonthControl("billing-source") || addMonthsToKey(monthKey, -1);
   const noticeStartMonth = syncMonthControl("notice-start") || monthKey;
   const workUsers = monitoringTargetUsers(monthKey);
-  const billingUsers = monitoringTargetUsers(billingSourceMonth);
+  const billingUsers = loadAll()
+    .filter(user => isDashboardVisible(user) && (
+      isMonitoringDueInMonth(user, billingSourceMonth) ||
+      !!user.monitoringRecords?.[billingSourceMonth] ||
+      monitoringRecordHasActivity(monitoringRecord(user, billingSourceMonth))
+    ))
+    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
   const noticeUsers = loadAll()
     .filter(user => isAlertEligible(user))
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
@@ -1039,13 +1042,17 @@ function renderMonitoringManagement() {
   const billingRecords = billingUsers.map(user => ({ user, record: monitoringRecord(user, billingSourceMonth) }));
   const noticeRecords = noticeUsers.flatMap(user => noticeMonths.map(month => ({ user, month, record: agencyNoticeRecord(user, month) })));
 
-  $("#monitoring-work-count").textContent = `${workRecords.filter(item => !monitoringWorkComplete(item.record)).length}件`;
+  $("#monitoring-work-count").textContent = `${workRecords.filter(item => (
+    isMonitoringDueInMonth(item.user, monthKey) ||
+    monitoringRecordHasActivity(item.record)
+  ) && !monitoringWorkComplete(item.record)).length}件`;
   $("#monitoring-return-count").textContent = `${workRecords.filter(item => item.record.mailed && !item.record.returned).length}件`;
   $("#monitoring-billing-count").textContent = `${billingRecords.filter(item => !(item.record.billingDone && item.record.billingSent)).length}件`;
   $("#monitoring-notice-count").textContent = `${noticeRecords.filter(item => !item.record.noticeSent).length}件`;
 
   $("#monitoring-work-body").innerHTML = workRecords.length ? workRecords.map(({ user, record }) => {
-    const status = monitoringWorkStatus(record);
+    const isTarget = isMonitoringDueInMonth(user, monthKey) || monitoringRecordHasActivity(record);
+    const status = monitoringWorkStatus(record, isTarget);
     return `
       <tr class="monitoring-${status.type}">
         <td><strong>${escapeHtml(user.name || "(無名)")}</strong></td>
@@ -1163,9 +1170,7 @@ function renderMonitoringCards(users) {
   }
 
   const monthKey = currentMonthKey();
-  const targetUsers = users
-    .filter(user => isMonitoringDueInMonth(user, monthKey) || !!user.monitoringRecords?.[monthKey] || monitoringRecordHasActivity(monitoringRecord(user, monthKey)))
-    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
+  const targetUsers = [...users].sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
 
   if (!targetUsers.length) {
     container.innerHTML = '<div class="empty-state">当月のモニタリング対象者はいません。</div>';
@@ -1190,7 +1195,8 @@ function renderMonitoringCards(users) {
         <tbody>
           ${targetUsers.map(user => {
             const record = monitoringRecord(user, monthKey);
-            const status = monitoringWorkStatus(record);
+            const isTarget = isMonitoringDueInMonth(user, monthKey) || monitoringRecordHasActivity(record);
+            const status = monitoringWorkStatus(record, isTarget);
             return `
               <tr class="monitoring-${status.type}">
                 <td><button type="button" class="monitoring-person-name inline-name" data-monitoring-open="${escapeHtml(user.id)}">${escapeHtml(user.name || "(無名)")}</button></td>

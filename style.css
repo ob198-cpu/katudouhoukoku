@@ -492,6 +492,11 @@ main {
   background: #fff8e8;
 }
 
+.monitoring-table tr.monitoring-inactive td {
+  background: #f8fbff;
+  color: #58708d;
+}
+
 .monitoring-check-cell {
   text-align: center !important;
 }
@@ -525,6 +530,11 @@ main {
 
 .monitoring-status-pill.danger {
   background: var(--danger);
+}
+
+.monitoring-status-pill.inactive {
+  color: #1b4975;
+  background: #dfefff;
 }
 
 .monitoring-person-name.inline-name {
