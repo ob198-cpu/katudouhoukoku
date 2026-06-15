@@ -273,6 +273,197 @@ main {
   background: #e60012;
 }
 
+.monitoring-management {
+  display: grid;
+  gap: 14px;
+}
+
+.monitoring-toolbar-card,
+.monitoring-work-panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.month-control-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(180px, 260px);
+  gap: 10px;
+  align-items: end;
+}
+
+.month-control-row label {
+  display: grid;
+  gap: 5px;
+  color: var(--primary-dark);
+  font-weight: 900;
+}
+
+.month-control-row input {
+  border: 1px solid #c9d6e8;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fff;
+}
+
+.monitoring-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.monitoring-kpi-card {
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--primary);
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fbff;
+}
+
+.monitoring-kpi-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.monitoring-kpi-card strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--primary-dark);
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.monitoring-mode-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.monitoring-mode-tab {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 16px;
+  color: var(--primary-dark);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.monitoring-mode-tab.active {
+  border-color: var(--primary);
+  color: #fff;
+  background: var(--primary);
+}
+
+.monitoring-work-panel {
+  display: none;
+}
+
+.monitoring-work-panel.active {
+  display: block;
+}
+
+.monitoring-panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+}
+
+.monitoring-panel-head h3 {
+  margin: 0;
+  color: var(--primary-dark);
+  font-size: 20px;
+}
+
+.monitoring-panel-head p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.monitoring-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.monitoring-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+}
+
+.monitoring-table th,
+.monitoring-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 9px 8px;
+  vertical-align: middle;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.monitoring-table th {
+  color: var(--primary-dark);
+  background: #eef5ff;
+  font-weight: 900;
+}
+
+.monitoring-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.monitoring-table tr.monitoring-danger td {
+  background: #fff2f2;
+}
+
+.monitoring-table tr.monitoring-wait td {
+  background: #fff8e8;
+}
+
+.monitoring-check-cell {
+  text-align: center !important;
+}
+
+.monitoring-check-cell input {
+  width: 18px;
+  height: 18px;
+}
+
+.monitoring-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  min-width: 76px;
+  padding: 5px 9px;
+  color: #fff;
+  background: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.monitoring-status-pill.done {
+  background: var(--ok);
+}
+
+.monitoring-status-pill.wait {
+  color: #3d2a00;
+  background: #f5c542;
+}
+
+.monitoring-status-pill.danger {
+  background: var(--danger);
+}
+
 .renewal-person-card {
   display: grid;
   grid-template-columns: minmax(120px, 0.55fr) auto minmax(0, 2.4fr);

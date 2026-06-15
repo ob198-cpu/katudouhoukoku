@@ -13,6 +13,22 @@ const RENEWAL_STEPS = [
   { key: "updateInfo", formKey: "update", label: "個人シートの更新", short: "シート更新" }
 ];
 
+const MONITORING_FIELD_LABELS = {
+  visited: "モニタリング実施",
+  recordDone: "モニタリング記録",
+  meetingRequired: "担当者会議録必要",
+  meetingDone: "担当者会議録",
+  reportDone: "モニタリング報告書",
+  mailed: "利用者へ郵送",
+  returned: "署名返送",
+  officeSent: "役所へ写し送付",
+  addOn: "加算対象",
+  billingDone: "給付費請求",
+  billingSent: "請求情報送信",
+  noticeCreated: "代理受領通知書作成",
+  noticeSent: "代理受領通知送付"
+};
+
 const ERA_OPTIONS = [
   { label: "令和", value: "reiwa", start: 2019, end: 9999 },
   { label: "平成", value: "heisei", start: 1989, end: 2019 },
@@ -197,6 +213,8 @@ function normalizeUser(user) {
     }
   });
   user.deadlineCompletions = user.deadlineCompletions || {};
+  user.monitoringRecords = user.monitoringRecords && typeof user.monitoringRecords === "object" ? user.monitoringRecords : {};
+  user.agencyNotices = user.agencyNotices && typeof user.agencyNotices === "object" ? user.agencyNotices : {};
   return user;
 }
 
@@ -508,6 +526,7 @@ function showView(name) {
   $(`#view-${name}`).classList.add("active");
   if (name === "dashboard") renderDashboard();
   if (name === "personal") renderPersonalSheets();
+  if (name === "monitoring") renderMonitoringManagement();
   if (name === "backup") renderBackup();
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -827,6 +846,232 @@ function isMonitoringMonth(user) {
   return diff % cycleMonths === 0;
 }
 
+function currentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function addMonthsToKey(monthKey, offset) {
+  const [year, month] = (monthKey || currentMonthKey()).split("-").map(Number);
+  const date = new Date(year, (month || 1) - 1 + offset, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthKeyLabel(monthKey) {
+  if (!monthKey) return "-";
+  const [year, month] = monthKey.split("-");
+  return `${year}年${Number(month)}月`;
+}
+
+function isMonitoringDueInMonth(user, monthKey) {
+  if (!isAlertEligible(user)) return false;
+  const cycleMonths = monitoringCycleMonths(user.monitoringCycle);
+  if (!cycleMonths) return false;
+  if (cycleMonths === 1) return true;
+  const start = parseDate(user.planStart);
+  if (!start) return false;
+  const [year, month] = monthKey.split("-").map(Number);
+  const target = new Date(year, month - 1, 1);
+  const diff = (target.getFullYear() - start.getFullYear()) * 12 + target.getMonth() - start.getMonth();
+  if (diff < 0) return false;
+  return diff % cycleMonths === 0;
+}
+
+function defaultMonitoringRecord(monthKey) {
+  return {
+    month: monthKey,
+    visited: false,
+    recordDone: false,
+    meetingRequired: true,
+    meetingDone: false,
+    reportDone: false,
+    mailed: false,
+    returned: false,
+    officeSent: false,
+    addOn: false,
+    billingDone: false,
+    billingSent: false
+  };
+}
+
+function monitoringRecord(user, monthKey) {
+  return {
+    ...defaultMonitoringRecord(monthKey),
+    ...(user.monitoringRecords?.[monthKey] || {})
+  };
+}
+
+function defaultAgencyNotice(monthKey) {
+  return {
+    month: monthKey,
+    noticeCreated: false,
+    noticeSent: false
+  };
+}
+
+function agencyNoticeRecord(user, monthKey) {
+  return {
+    ...defaultAgencyNotice(monthKey),
+    ...(user.agencyNotices?.[monthKey] || {})
+  };
+}
+
+function monitoringRecordHasActivity(record) {
+  return Object.entries(record).some(([key, value]) => key !== "month" && value === true);
+}
+
+function monitoringWorkComplete(record) {
+  const meetingOk = !record.meetingRequired || record.meetingDone;
+  return record.visited && record.recordDone && meetingOk && record.reportDone && record.mailed && record.returned && record.officeSent;
+}
+
+function monitoringWorkStatus(record) {
+  if (monitoringWorkComplete(record)) return { text: "完了", type: "done" };
+  if (record.mailed && !record.returned) return { text: "署名返送待ち", type: "wait" };
+  if (record.returned && !record.officeSent) return { text: "役所送付待ち", type: "danger" };
+  return { text: "未完了", type: "danger" };
+}
+
+function monitoringBillingReady(record) {
+  return record.recordDone && (!record.meetingRequired || record.meetingDone) && record.reportDone;
+}
+
+function monitoringBillingStatus(record) {
+  if (record.billingDone && record.billingSent) return { text: "完了", type: "done" };
+  if (!monitoringBillingReady(record)) return { text: "資料不足", type: "danger" };
+  if (record.billingDone && !record.billingSent) return { text: "送信待ち", type: "wait" };
+  return { text: "請求待ち", type: "danger" };
+}
+
+function agencyNoticeStatus(record) {
+  if (record.noticeCreated && record.noticeSent) return { text: "完了", type: "done" };
+  if (record.noticeCreated && !record.noticeSent) return { text: "送付待ち", type: "wait" };
+  return { text: "未作成", type: "danger" };
+}
+
+function monitoringTargetUsers(monthKey) {
+  return loadAll()
+    .filter(user => isDashboardVisible(user) && (
+      isMonitoringDueInMonth(user, monthKey) ||
+      monitoringRecordHasActivity(monitoringRecord(user, monthKey))
+    ))
+    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
+}
+
+function monitoringCheckboxHtml(user, monthKey, kind, field, checked) {
+  return `
+    <td class="monitoring-check-cell">
+      <input type="checkbox"
+        data-monitoring-kind="${escapeHtml(kind)}"
+        data-monitoring-user="${escapeHtml(user.id)}"
+        data-monitoring-month="${escapeHtml(monthKey)}"
+        data-monitoring-field="${escapeHtml(field)}"
+        ${checked ? "checked" : ""}>
+    </td>
+  `;
+}
+
+function renderMonitoringManagement() {
+  const input = $("#monitoring-month");
+  if (!input) return;
+  if (!input.value) input.value = currentMonthKey();
+
+  const monthKey = input.value;
+  const billingSourceMonth = addMonthsToKey(monthKey, -1);
+  const workUsers = monitoringTargetUsers(monthKey);
+  const billingUsers = monitoringTargetUsers(billingSourceMonth);
+  const noticeUsers = loadAll()
+    .filter(user => isAlertEligible(user))
+    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
+
+  $("#monitoring-work-title").textContent = `${monthKeyLabel(monthKey)} モニタリング実施管理`;
+  $("#monitoring-billing-title").textContent = `${monthKeyLabel(monthKey)} 給付費請求管理（${monthKeyLabel(billingSourceMonth)}実施分）`;
+  $("#monitoring-notice-title").textContent = `${monthKeyLabel(monthKey)} 代理受領通知管理`;
+
+  const workRecords = workUsers.map(user => ({ user, record: monitoringRecord(user, monthKey) }));
+  const billingRecords = billingUsers.map(user => ({ user, record: monitoringRecord(user, billingSourceMonth) }));
+  const noticeRecords = noticeUsers.map(user => ({ user, record: agencyNoticeRecord(user, monthKey) }));
+
+  $("#monitoring-work-count").textContent = `${workRecords.filter(item => !monitoringWorkComplete(item.record)).length}件`;
+  $("#monitoring-return-count").textContent = `${workRecords.filter(item => item.record.mailed && !item.record.returned).length}件`;
+  $("#monitoring-billing-count").textContent = `${billingRecords.filter(item => !(item.record.billingDone && item.record.billingSent)).length}件`;
+  $("#monitoring-notice-count").textContent = `${noticeRecords.filter(item => !item.record.noticeSent).length}件`;
+
+  $("#monitoring-work-body").innerHTML = workRecords.length ? workRecords.map(({ user, record }) => {
+    const status = monitoringWorkStatus(record);
+    return `
+      <tr class="monitoring-${status.type}">
+        <td><strong>${escapeHtml(user.name || "(無名)")}</strong></td>
+        <td>${isMonitoringDueInMonth(user, monthKey) ? "対象" : "手動"}</td>
+        ${monitoringCheckboxHtml(user, monthKey, "work", "visited", record.visited)}
+        ${monitoringCheckboxHtml(user, monthKey, "work", "recordDone", record.recordDone)}
+        ${monitoringCheckboxHtml(user, monthKey, "work", "meetingRequired", record.meetingRequired)}
+        ${record.meetingRequired ? monitoringCheckboxHtml(user, monthKey, "work", "meetingDone", record.meetingDone) : '<td><span class="monitoring-status-pill done">不要</span></td>'}
+        ${monitoringCheckboxHtml(user, monthKey, "work", "reportDone", record.reportDone)}
+        ${monitoringCheckboxHtml(user, monthKey, "work", "mailed", record.mailed)}
+        ${monitoringCheckboxHtml(user, monthKey, "work", "returned", record.returned)}
+        ${monitoringCheckboxHtml(user, monthKey, "work", "officeSent", record.officeSent)}
+        <td><span class="monitoring-status-pill ${status.type}">${escapeHtml(status.text)}</span></td>
+      </tr>
+    `;
+  }).join("") : '<tr><td colspan="11">この月のモニタリング対象者はいません。</td></tr>';
+
+  $("#monitoring-billing-body").innerHTML = billingRecords.length ? billingRecords.map(({ user, record }) => {
+    const status = monitoringBillingStatus(record);
+    const meetingText = record.meetingRequired ? (record.meetingDone ? "済" : "未") : "不要";
+    return `
+      <tr class="monitoring-${status.type}">
+        <td><strong>${escapeHtml(user.name || "(無名)")}</strong></td>
+        <td>${escapeHtml(monthKeyLabel(billingSourceMonth))}</td>
+        <td>${record.recordDone ? "済" : "未"}</td>
+        <td>${meetingText}</td>
+        <td>${record.reportDone ? "済" : "未"}</td>
+        ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "addOn", record.addOn)}
+        ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "billingDone", record.billingDone)}
+        ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "billingSent", record.billingSent)}
+        <td><span class="monitoring-status-pill ${status.type}">${escapeHtml(status.text)}</span></td>
+      </tr>
+    `;
+  }).join("") : '<tr><td colspan="9">前月のモニタリング対象者はいません。</td></tr>';
+
+  $("#monitoring-notice-body").innerHTML = noticeRecords.length ? noticeRecords.map(({ user, record }) => {
+    const status = agencyNoticeStatus(record);
+    return `
+      <tr class="monitoring-${status.type}">
+        <td><strong>${escapeHtml(user.name || "(無名)")}</strong></td>
+        <td>${escapeHtml(monthKeyLabel(monthKey))}</td>
+        ${monitoringCheckboxHtml(user, monthKey, "notice", "noticeCreated", record.noticeCreated)}
+        ${monitoringCheckboxHtml(user, monthKey, "notice", "noticeSent", record.noticeSent)}
+        <td><span class="monitoring-status-pill ${status.type}">${escapeHtml(status.text)}</span></td>
+      </tr>
+    `;
+  }).join("") : '<tr><td colspan="5">利用中の利用者はいません。</td></tr>';
+}
+
+function updateMonitoringField(userId, monthKey, kind, field, checked) {
+  const user = getUser(userId);
+  if (!user) return;
+  if (kind === "notice") {
+    user.agencyNotices = user.agencyNotices || {};
+    user.agencyNotices[monthKey] = {
+      ...defaultAgencyNotice(monthKey),
+      ...(user.agencyNotices[monthKey] || {}),
+      [field]: checked
+    };
+  } else {
+    user.monitoringRecords = user.monitoringRecords || {};
+    user.monitoringRecords[monthKey] = {
+      ...defaultMonitoringRecord(monthKey),
+      ...(user.monitoringRecords[monthKey] || {}),
+      [field]: checked
+    };
+  }
+  addHistory(user, "モニタリング管理更新", `${monthKeyLabel(monthKey)} / ${MONITORING_FIELD_LABELS[field] || field}: ${checked ? "済" : "未"}`);
+  upsertUser(user);
+  renderMonitoringManagement();
+  renderDashboard();
+}
+
 function isAlertEligible(user) {
   return (user.status || "active") === "active";
 }
@@ -855,12 +1100,14 @@ function renderMonitoringCards(users) {
 
   users.forEach(user => {
     const active = isMonitoringMonth(user);
+    const currentRecord = monitoringRecord(user, currentMonthKey());
+    const currentComplete = active && monitoringWorkComplete(currentRecord);
     const card = document.createElement("article");
     const status = user.status || "active";
-    card.className = `monitoring-person-card ${active ? "active" : ""} ${status !== "active" ? "inactive" : ""}`;
+    card.className = `monitoring-person-card ${active && !currentComplete ? "active" : ""} ${status !== "active" ? "inactive" : ""}`;
     card.innerHTML = `
       <button type="button" class="monitoring-person-name" data-monitoring-open="${escapeHtml(user.id)}">${escapeHtml(user.name || "(無名)")}</button>
-      <span class="monitoring-status ${active ? "alert" : ""}">${status !== "active" ? escapeHtml(USER_STATUS_LABELS[status]) : active ? "当月モニタリング" : escapeHtml(user.monitoringCycle || "未設定")}</span>
+      <span class="monitoring-status ${active && !currentComplete ? "alert" : ""}">${status !== "active" ? escapeHtml(USER_STATUS_LABELS[status]) : active ? (currentComplete ? "モニタリング完了" : "当月モニタリング") : escapeHtml(user.monitoringCycle || "未設定")}</span>
     `;
     card.querySelector("[data-monitoring-open]").addEventListener("click", () => showDetail(user.id));
     container.appendChild(card);
@@ -1434,6 +1681,36 @@ function init() {
   });
   $$(".btn-add").forEach(button => {
     button.addEventListener("click", () => addServiceRow(button.dataset.target));
+  });
+  $("#monitoring-month").value = currentMonthKey();
+  $("#monitoring-prev-month").addEventListener("click", () => {
+    $("#monitoring-month").value = addMonthsToKey($("#monitoring-month").value, -1);
+    renderMonitoringManagement();
+  });
+  $("#monitoring-next-month").addEventListener("click", () => {
+    $("#monitoring-month").value = addMonthsToKey($("#monitoring-month").value, 1);
+    renderMonitoringManagement();
+  });
+  $("#monitoring-month").addEventListener("change", renderMonitoringManagement);
+  $$("[data-monitoring-tab]").forEach(button => {
+    button.addEventListener("click", () => {
+      $$("[data-monitoring-tab]").forEach(tab => tab.classList.remove("active"));
+      $$("[data-monitoring-panel]").forEach(panel => panel.classList.remove("active"));
+      button.classList.add("active");
+      $(`[data-monitoring-panel="${button.dataset.monitoringTab}"]`).classList.add("active");
+      renderMonitoringManagement();
+    });
+  });
+  $("#view-monitoring").addEventListener("change", event => {
+    const target = event.target;
+    if (!target.matches("[data-monitoring-kind]")) return;
+    updateMonitoringField(
+      target.dataset.monitoringUser,
+      target.dataset.monitoringMonth,
+      target.dataset.monitoringKind,
+      target.dataset.monitoringField,
+      target.checked
+    );
   });
   $("#user-form").addEventListener("submit", event => {
     event.preventDefault();
