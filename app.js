@@ -1073,7 +1073,7 @@ function renderMonitoringManagement() {
         <td><span class="monitoring-status-pill ${status.type}">${escapeHtml(status.text)}</span></td>
       </tr>
     `;
-  }).join("") : '<tr><td colspan="9">前月のモニタリング対象者はいません。</td></tr>';
+  }).join("") : `<tr><td colspan="9">${escapeHtml(monthKeyLabel(billingSourceMonth))}のモニタリング対象者はいません。</td></tr>`;
 
   $("#monitoring-notice-table").innerHTML = noticeUsers.length ? `
     <table class="monitoring-table monitoring-notice-month-table">
