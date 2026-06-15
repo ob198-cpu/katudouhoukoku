@@ -922,7 +922,7 @@ function monitoringRecordHasActivity(record) {
 
 function monitoringWorkComplete(record) {
   const meetingOk = !record.meetingRequired || record.meetingDone;
-  return record.visited && record.recordDone && meetingOk && record.reportDone && record.mailed && record.returned && record.officeSent;
+  return record.recordDone && meetingOk && record.reportDone && record.mailed && record.returned && record.officeSent;
 }
 
 function monitoringWorkStatus(record) {
@@ -1004,10 +1004,8 @@ function renderMonitoringManagement() {
     return `
       <tr class="monitoring-${status.type}">
         <td><strong>${escapeHtml(user.name || "(無名)")}</strong></td>
-        <td>${isMonitoringDueInMonth(user, monthKey) ? "対象" : "手動"}</td>
-        ${monitoringCheckboxHtml(user, monthKey, "work", "visited", record.visited)}
-        ${monitoringCheckboxHtml(user, monthKey, "work", "recordDone", record.recordDone)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "meetingRequired", record.meetingRequired, true)}
+        ${monitoringCheckboxHtml(user, monthKey, "work", "recordDone", record.recordDone)}
         ${record.meetingRequired ? monitoringCheckboxHtml(user, monthKey, "work", "meetingDone", record.meetingDone) : '<td><span class="monitoring-status-pill done">不要</span></td>'}
         ${monitoringCheckboxHtml(user, monthKey, "work", "reportDone", record.reportDone)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "mailed", record.mailed)}
@@ -1016,7 +1014,7 @@ function renderMonitoringManagement() {
         <td><span class="monitoring-status-pill ${status.type}">${escapeHtml(status.text)}</span></td>
       </tr>
     `;
-  }).join("") : '<tr><td colspan="11">この月のモニタリング対象者はいません。</td></tr>';
+  }).join("") : '<tr><td colspan="8">この月のモニタリング対象者はいません。</td></tr>';
 
   $("#monitoring-billing-body").innerHTML = billingRecords.length ? billingRecords.map(({ user, record }) => {
     const status = monitoringBillingStatus(record);
