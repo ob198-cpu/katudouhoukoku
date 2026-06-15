@@ -958,7 +958,8 @@ function monitoringTargetUsers(monthKey) {
     .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
 }
 
-function monitoringCheckboxHtml(user, monthKey, kind, field, checked) {
+function monitoringCheckboxHtml(user, monthKey, kind, field, checked, invert = false) {
+  const isChecked = invert ? !checked : checked;
   return `
     <td class="monitoring-check-cell">
       <input type="checkbox"
@@ -966,7 +967,8 @@ function monitoringCheckboxHtml(user, monthKey, kind, field, checked) {
         data-monitoring-user="${escapeHtml(user.id)}"
         data-monitoring-month="${escapeHtml(monthKey)}"
         data-monitoring-field="${escapeHtml(field)}"
-        ${checked ? "checked" : ""}>
+        ${invert ? 'data-monitoring-invert="true"' : ""}
+        ${isChecked ? "checked" : ""}>
     </td>
   `;
 }
@@ -1005,7 +1007,7 @@ function renderMonitoringManagement() {
         <td>${isMonitoringDueInMonth(user, monthKey) ? "対象" : "手動"}</td>
         ${monitoringCheckboxHtml(user, monthKey, "work", "visited", record.visited)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "recordDone", record.recordDone)}
-        ${monitoringCheckboxHtml(user, monthKey, "work", "meetingRequired", record.meetingRequired)}
+        ${monitoringCheckboxHtml(user, monthKey, "work", "meetingRequired", record.meetingRequired, true)}
         ${record.meetingRequired ? monitoringCheckboxHtml(user, monthKey, "work", "meetingDone", record.meetingDone) : '<td><span class="monitoring-status-pill done">不要</span></td>'}
         ${monitoringCheckboxHtml(user, monthKey, "work", "reportDone", record.reportDone)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "mailed", record.mailed)}
@@ -1709,7 +1711,7 @@ function init() {
       target.dataset.monitoringMonth,
       target.dataset.monitoringKind,
       target.dataset.monitoringField,
-      target.checked
+      target.dataset.monitoringInvert === "true" ? !target.checked : target.checked
     );
   });
   $("#user-form").addEventListener("submit", event => {
