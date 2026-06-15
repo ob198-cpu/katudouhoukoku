@@ -871,6 +871,39 @@ function noticeMonthKeys(startMonthKey, count = 6) {
   return Array.from({ length: count }, (_, index) => addMonthsToKey(startMonthKey, index));
 }
 
+function populateMonthSelect(select) {
+  if (!select || select.options.length) return;
+  select.innerHTML = Array.from({ length: 12 }, (_, index) => {
+    const month = index + 1;
+    return `<option value="${month}">${month}月</option>`;
+  }).join("");
+}
+
+function setMonthControl(prefix, monthKey) {
+  const key = monthKey || currentMonthKey();
+  const [year, month] = key.split("-");
+  const hidden = $(`#${prefix}-month`);
+  const yearInput = $(`#${prefix}-year`);
+  const monthSelect = $(`#${prefix}-month-number`);
+  populateMonthSelect(monthSelect);
+  if (hidden) hidden.value = key;
+  if (yearInput) yearInput.value = year;
+  if (monthSelect) monthSelect.value = String(Number(month));
+}
+
+function syncMonthControl(prefix) {
+  const hidden = $(`#${prefix}-month`);
+  const yearInput = $(`#${prefix}-year`);
+  const monthSelect = $(`#${prefix}-month-number`);
+  populateMonthSelect(monthSelect);
+  const year = Number(yearInput?.value);
+  const month = Number(monthSelect?.value);
+  if (!year || year < 1900 || year > 9999 || !month) return hidden?.value || "";
+  const key = `${year}-${String(month).padStart(2, "0")}`;
+  if (hidden) hidden.value = key;
+  return key;
+}
+
 function isMonitoringDueInMonth(user, monthKey) {
   if (!isAlertEligible(user)) return false;
   const cycleMonths = monitoringCycleMonths(user.monitoringCycle);
@@ -983,12 +1016,12 @@ function monitoringCheckboxHtml(user, monthKey, kind, field, checked, invert = f
 function renderMonitoringManagement() {
   const input = $("#monitoring-month");
   if (!input) return;
-  if (!input.value) input.value = currentMonthKey();
+  if (!input.value) setMonthControl("monitoring", currentMonthKey());
 
-  const monthKey = input.value;
+  const monthKey = syncMonthControl("monitoring") || currentMonthKey();
   const billingInput = $("#billing-source-month");
-  if (billingInput && !billingInput.value) billingInput.value = addMonthsToKey(monthKey, -1);
-  const billingSourceMonth = billingInput?.value || addMonthsToKey(monthKey, -1);
+  if (billingInput && !billingInput.value) setMonthControl("billing-source", addMonthsToKey(monthKey, -1));
+  const billingSourceMonth = syncMonthControl("billing-source") || addMonthsToKey(monthKey, -1);
   const workUsers = monitoringTargetUsers(monthKey);
   const billingUsers = monitoringTargetUsers(billingSourceMonth);
   const noticeUsers = loadAll()
@@ -1747,31 +1780,37 @@ function init() {
   $$(".btn-add").forEach(button => {
     button.addEventListener("click", () => addServiceRow(button.dataset.target));
   });
-  $("#monitoring-month").value = currentMonthKey();
+  setMonthControl("monitoring", currentMonthKey());
+  setMonthControl("billing-source", addMonthsToKey(currentMonthKey(), -1));
   $("#monitoring-prev-month").addEventListener("click", () => {
-    $("#monitoring-month").value = addMonthsToKey($("#monitoring-month").value, -1);
-    $("#billing-source-month").value = addMonthsToKey($("#monitoring-month").value, -1);
+    const next = addMonthsToKey(syncMonthControl("monitoring"), -1);
+    setMonthControl("monitoring", next);
+    setMonthControl("billing-source", addMonthsToKey(next, -1));
     renderMonitoringManagement();
   });
   $("#monitoring-next-month").addEventListener("click", () => {
-    $("#monitoring-month").value = addMonthsToKey($("#monitoring-month").value, 1);
-    $("#billing-source-month").value = addMonthsToKey($("#monitoring-month").value, -1);
+    const next = addMonthsToKey(syncMonthControl("monitoring"), 1);
+    setMonthControl("monitoring", next);
+    setMonthControl("billing-source", addMonthsToKey(next, -1));
     renderMonitoringManagement();
   });
-  $("#monitoring-month").addEventListener("change", () => {
-    $("#billing-source-month").value = addMonthsToKey($("#monitoring-month").value, -1);
+  ["monitoring-year", "monitoring-month-number"].forEach(id => $(`#${id}`).addEventListener("change", () => {
+    const current = syncMonthControl("monitoring");
+    setMonthControl("billing-source", addMonthsToKey(current, -1));
     renderMonitoringManagement();
-  });
-  $("#billing-source-month").value = addMonthsToKey($("#monitoring-month").value || currentMonthKey(), -1);
+  }));
   $("#billing-prev-target-month").addEventListener("click", () => {
-    $("#billing-source-month").value = addMonthsToKey($("#billing-source-month").value, -1);
+    setMonthControl("billing-source", addMonthsToKey(syncMonthControl("billing-source"), -1));
     renderMonitoringManagement();
   });
   $("#billing-next-target-month").addEventListener("click", () => {
-    $("#billing-source-month").value = addMonthsToKey($("#billing-source-month").value, 1);
+    setMonthControl("billing-source", addMonthsToKey(syncMonthControl("billing-source"), 1));
     renderMonitoringManagement();
   });
-  $("#billing-source-month").addEventListener("change", renderMonitoringManagement);
+  ["billing-source-year", "billing-source-month-number"].forEach(id => $(`#${id}`).addEventListener("change", () => {
+    syncMonthControl("billing-source");
+    renderMonitoringManagement();
+  }));
   $$("[data-monitoring-tab]").forEach(button => {
     button.addEventListener("click", () => {
       $$("[data-monitoring-tab]").forEach(tab => tab.classList.remove("active"));

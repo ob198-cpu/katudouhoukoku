@@ -334,6 +334,29 @@ main {
   background: #fff;
 }
 
+.month-picker {
+  display: grid;
+  grid-template-columns: minmax(82px, 1fr) auto minmax(80px, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.month-picker input,
+.month-picker select {
+  width: 100%;
+  border: 1px solid #c9d6e8;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fff;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.month-picker span {
+  color: var(--primary-dark);
+  font-weight: 900;
+}
+
 .monitoring-kpi-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

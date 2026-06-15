@@ -78,7 +78,15 @@
           <div class="month-control-row">
             <button type="button" class="btn-secondary" id="monitoring-prev-month">前月</button>
             <button type="button" class="btn-secondary" id="monitoring-next-month">翌月</button>
-            <label>表示月<input type="month" id="monitoring-month"></label>
+            <label>表示月
+              <span class="month-picker">
+                <input type="number" id="monitoring-year" min="2020" max="2126" inputmode="numeric" aria-label="表示年">
+                <span>年</span>
+                <select id="monitoring-month-number" aria-label="表示月"></select>
+                <span>月</span>
+              </span>
+              <input type="hidden" id="monitoring-month">
+            </label>
           </div>
           <div class="monitoring-kpi-row">
             <div class="monitoring-kpi-card"><span>実施未完了</span><strong id="monitoring-work-count">0件</strong></div>
@@ -126,7 +134,15 @@
           <div class="monitoring-sub-toolbar">
             <button type="button" class="btn-secondary" id="billing-prev-target-month">前月</button>
             <button type="button" class="btn-secondary" id="billing-next-target-month">翌月</button>
-            <label>対象実施月<input type="month" id="billing-source-month"></label>
+            <label>対象実施月
+              <span class="month-picker">
+                <input type="number" id="billing-source-year" min="2020" max="2126" inputmode="numeric" aria-label="対象実施年">
+                <span>年</span>
+                <select id="billing-source-month-number" aria-label="対象実施月"></select>
+                <span>月</span>
+              </span>
+              <input type="hidden" id="billing-source-month">
+            </label>
           </div>
           <div class="monitoring-table-wrap">
             <table class="monitoring-table">
@@ -371,6 +387,6 @@
     </div>
   </template>
 
-  <script src="app.js?v=20260615-billing-target-month"></script>
+  <script src="app.js?v=20260615-standard-month-picker"></script>
 </body>
 </html>
