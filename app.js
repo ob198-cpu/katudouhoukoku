@@ -1078,6 +1078,30 @@ function updateMonitoringField(userId, monthKey, kind, field, checked) {
   renderDashboard();
 }
 
+function handleMonitoringCheckboxChange(event) {
+  const target = event.target;
+  if (!target.matches("[data-monitoring-kind]")) return;
+  updateMonitoringField(
+    target.dataset.monitoringUser,
+    target.dataset.monitoringMonth,
+    target.dataset.monitoringKind,
+    target.dataset.monitoringField,
+    target.dataset.monitoringInvert === "true" ? !target.checked : target.checked
+  );
+}
+
+function handleMonitoringRestoreClick(event) {
+  const target = event.target.closest("[data-monitoring-restore-user]");
+  if (!target) return;
+  updateMonitoringField(
+    target.dataset.monitoringRestoreUser,
+    target.dataset.monitoringRestoreMonth,
+    "work",
+    "meetingRequired",
+    true
+  );
+}
+
 function isAlertEligible(user) {
   return (user.status || "active") === "active";
 }
@@ -1088,7 +1112,7 @@ function isDashboardVisible(user) {
 
 function renderDashboard() {
   const users = loadAll().filter(user => isDashboardVisible(user));
-  const monitoringUsers = users.filter(user => isMonitoringMonth(user));
+  const monitoringUsers = users.filter(user => isMonitoringDueInMonth(user, currentMonthKey()) || monitoringRecordHasActivity(monitoringRecord(user, currentMonthKey())));
   renderMonitoringCards(users);
   renderRenewalCards(users);
   $("#count-monitoring").textContent = monitoringUsers.length;
@@ -1104,19 +1128,63 @@ function renderMonitoringCards(users) {
     return;
   }
 
-  users.forEach(user => {
-    const active = isMonitoringMonth(user);
-    const currentRecord = monitoringRecord(user, currentMonthKey());
-    const currentComplete = active && monitoringWorkComplete(currentRecord);
-    const card = document.createElement("article");
-    const status = user.status || "active";
-    card.className = `monitoring-person-card ${active && !currentComplete ? "active" : ""} ${status !== "active" ? "inactive" : ""}`;
-    card.innerHTML = `
-      <button type="button" class="monitoring-person-name" data-monitoring-open="${escapeHtml(user.id)}">${escapeHtml(user.name || "(無名)")}</button>
-      <span class="monitoring-status ${active && !currentComplete ? "alert" : ""}">${status !== "active" ? escapeHtml(USER_STATUS_LABELS[status]) : active ? (currentComplete ? "モニタリング完了" : "当月モニタリング") : escapeHtml(user.monitoringCycle || "未設定")}</span>
-    `;
-    card.querySelector("[data-monitoring-open]").addEventListener("click", () => showDetail(user.id));
-    container.appendChild(card);
+  const monthKey = currentMonthKey();
+  const targetUsers = users
+    .filter(user => isMonitoringDueInMonth(user, monthKey) || monitoringRecordHasActivity(monitoringRecord(user, monthKey)))
+    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "ja"));
+
+  if (!targetUsers.length) {
+    container.innerHTML = '<div class="empty-state">当月のモニタリング対象者はいません。</div>';
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="monitoring-table-wrap dashboard-monitoring-table">
+      <table class="monitoring-table">
+        <thead>
+          <tr>
+            <th>氏名</th>
+            <th>会議録不要</th>
+            <th>モニタリング記録作成</th>
+            <th>担当者会議録作成</th>
+            <th>モニタリング報告書作成</th>
+            <th>モニタリング報告書郵送</th>
+            <th>モニタリング報告書返送</th>
+            <th>写しを役所に郵送</th>
+            <th>状態</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${targetUsers.map(user => {
+            const record = monitoringRecord(user, monthKey);
+            const status = monitoringWorkStatus(record);
+            return `
+              <tr class="monitoring-${status.type}">
+                <td><button type="button" class="monitoring-person-name inline-name" data-monitoring-open="${escapeHtml(user.id)}">${escapeHtml(user.name || "(無名)")}</button></td>
+                ${monitoringCheckboxHtml(user, monthKey, "work", "meetingRequired", record.meetingRequired, true)}
+                ${monitoringCheckboxHtml(user, monthKey, "work", "recordDone", record.recordDone)}
+                ${record.meetingRequired ? monitoringCheckboxHtml(user, monthKey, "work", "meetingDone", record.meetingDone) : `
+                  <td>
+                    <button type="button" class="monitoring-restore-btn"
+                      data-monitoring-restore-user="${escapeHtml(user.id)}"
+                      data-monitoring-restore-month="${escapeHtml(monthKey)}">必要に戻す</button>
+                  </td>
+                `}
+                ${monitoringCheckboxHtml(user, monthKey, "work", "reportDone", record.reportDone)}
+                ${monitoringCheckboxHtml(user, monthKey, "work", "mailed", record.mailed)}
+                ${monitoringCheckboxHtml(user, monthKey, "work", "returned", record.returned)}
+                ${monitoringCheckboxHtml(user, monthKey, "work", "officeSent", record.officeSent)}
+                <td><span class="monitoring-status-pill ${status.type}">${escapeHtml(status.text)}</span></td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  container.querySelectorAll("[data-monitoring-open]").forEach(button => {
+    button.addEventListener("click", () => showDetail(button.dataset.monitoringOpen));
   });
 }
 
@@ -1707,28 +1775,10 @@ function init() {
       renderMonitoringManagement();
     });
   });
-  $("#view-monitoring").addEventListener("change", event => {
-    const target = event.target;
-    if (!target.matches("[data-monitoring-kind]")) return;
-    updateMonitoringField(
-      target.dataset.monitoringUser,
-      target.dataset.monitoringMonth,
-      target.dataset.monitoringKind,
-      target.dataset.monitoringField,
-      target.dataset.monitoringInvert === "true" ? !target.checked : target.checked
-    );
-  });
-  $("#view-monitoring").addEventListener("click", event => {
-    const target = event.target.closest("[data-monitoring-restore-user]");
-    if (!target) return;
-    updateMonitoringField(
-      target.dataset.monitoringRestoreUser,
-      target.dataset.monitoringRestoreMonth,
-      "work",
-      "meetingRequired",
-      true
-    );
-  });
+  $("#view-monitoring").addEventListener("change", handleMonitoringCheckboxChange);
+  $("#view-monitoring").addEventListener("click", handleMonitoringRestoreClick);
+  $("#view-dashboard").addEventListener("change", handleMonitoringCheckboxChange);
+  $("#view-dashboard").addEventListener("click", handleMonitoringRestoreClick);
   $("#user-form").addEventListener("submit", event => {
     event.preventDefault();
     syncEraInputsToNative($("#user-form"));
