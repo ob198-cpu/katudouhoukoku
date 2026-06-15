@@ -16,7 +16,6 @@ const RENEWAL_STEPS = [
 const MONITORING_FIELD_LABELS = {
   visited: "モニタリング実施",
   recordDone: "モニタリング記録",
-  meetingRequired: "担当者会議録必要",
   meetingDone: "担当者会議録",
   reportDone: "モニタリング報告書",
   mailed: "利用者へ郵送",
@@ -882,7 +881,6 @@ function defaultMonitoringRecord(monthKey) {
     month: monthKey,
     visited: false,
     recordDone: false,
-    meetingRequired: true,
     meetingDone: false,
     reportDone: false,
     mailed: false,
@@ -921,8 +919,7 @@ function monitoringRecordHasActivity(record) {
 }
 
 function monitoringWorkComplete(record) {
-  const meetingOk = !record.meetingRequired || record.meetingDone;
-  return record.recordDone && meetingOk && record.reportDone && record.mailed && record.returned && record.officeSent;
+  return record.recordDone && record.meetingDone && record.reportDone && record.mailed && record.returned && record.officeSent;
 }
 
 function monitoringWorkStatus(record) {
@@ -933,7 +930,7 @@ function monitoringWorkStatus(record) {
 }
 
 function monitoringBillingReady(record) {
-  return record.recordDone && (!record.meetingRequired || record.meetingDone) && record.reportDone;
+  return record.recordDone && record.meetingDone && record.reportDone;
 }
 
 function monitoringBillingStatus(record) {
@@ -1005,15 +1002,8 @@ function renderMonitoringManagement() {
     return `
       <tr class="monitoring-${status.type}">
         <td><strong>${escapeHtml(user.name || "(無名)")}</strong></td>
-        ${monitoringCheckboxHtml(user, monthKey, "work", "meetingRequired", record.meetingRequired, true)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "recordDone", record.recordDone)}
-        ${record.meetingRequired ? monitoringCheckboxHtml(user, monthKey, "work", "meetingDone", record.meetingDone) : `
-          <td>
-            <button type="button" class="monitoring-restore-btn"
-              data-monitoring-restore-user="${escapeHtml(user.id)}"
-              data-monitoring-restore-month="${escapeHtml(monthKey)}">必要に戻す</button>
-          </td>
-        `}
+        ${monitoringCheckboxHtml(user, monthKey, "work", "meetingDone", record.meetingDone)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "reportDone", record.reportDone)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "mailed", record.mailed)}
         ${monitoringCheckboxHtml(user, monthKey, "work", "returned", record.returned)}
@@ -1021,17 +1011,16 @@ function renderMonitoringManagement() {
         <td><span class="monitoring-status-pill ${status.type}">${escapeHtml(status.text)}</span></td>
       </tr>
     `;
-  }).join("") : '<tr><td colspan="8">この月のモニタリング対象者はいません。</td></tr>';
+  }).join("") : '<tr><td colspan="7">この月のモニタリング対象者はいません。</td></tr>';
 
   $("#monitoring-billing-body").innerHTML = billingRecords.length ? billingRecords.map(({ user, record }) => {
     const status = monitoringBillingStatus(record);
-    const meetingText = record.meetingRequired ? (record.meetingDone ? "済" : "未") : "不要";
     return `
       <tr class="monitoring-${status.type}">
         <td><strong>${escapeHtml(user.name || "(無名)")}</strong></td>
         <td>${escapeHtml(monthKeyLabel(billingSourceMonth))}</td>
         <td>${record.recordDone ? "済" : "未"}</td>
-        <td>${meetingText}</td>
+        <td>${record.meetingDone ? "済" : "未"}</td>
         <td>${record.reportDone ? "済" : "未"}</td>
         ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "addOn", record.addOn)}
         ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "billingDone", record.billingDone)}
@@ -1091,18 +1080,6 @@ function handleMonitoringCheckboxChange(event) {
   );
 }
 
-function handleMonitoringRestoreClick(event) {
-  const target = event.target.closest("[data-monitoring-restore-user]");
-  if (!target) return;
-  updateMonitoringField(
-    target.dataset.monitoringRestoreUser,
-    target.dataset.monitoringRestoreMonth,
-    "work",
-    "meetingRequired",
-    true
-  );
-}
-
 function isAlertEligible(user) {
   return (user.status || "active") === "active";
 }
@@ -1145,7 +1122,6 @@ function renderMonitoringCards(users) {
         <thead>
           <tr>
             <th>氏名</th>
-            <th>会議録不要</th>
             <th>モニタリング記録作成</th>
             <th>担当者会議録作成</th>
             <th>モニタリング報告書作成</th>
@@ -1162,15 +1138,8 @@ function renderMonitoringCards(users) {
             return `
               <tr class="monitoring-${status.type}">
                 <td><button type="button" class="monitoring-person-name inline-name" data-monitoring-open="${escapeHtml(user.id)}">${escapeHtml(user.name || "(無名)")}</button></td>
-                ${monitoringCheckboxHtml(user, monthKey, "work", "meetingRequired", record.meetingRequired, true)}
                 ${monitoringCheckboxHtml(user, monthKey, "work", "recordDone", record.recordDone)}
-                ${record.meetingRequired ? monitoringCheckboxHtml(user, monthKey, "work", "meetingDone", record.meetingDone) : `
-                  <td>
-                    <button type="button" class="monitoring-restore-btn"
-                      data-monitoring-restore-user="${escapeHtml(user.id)}"
-                      data-monitoring-restore-month="${escapeHtml(monthKey)}">必要に戻す</button>
-                  </td>
-                `}
+                ${monitoringCheckboxHtml(user, monthKey, "work", "meetingDone", record.meetingDone)}
                 ${monitoringCheckboxHtml(user, monthKey, "work", "reportDone", record.reportDone)}
                 ${monitoringCheckboxHtml(user, monthKey, "work", "mailed", record.mailed)}
                 ${monitoringCheckboxHtml(user, monthKey, "work", "returned", record.returned)}
@@ -1777,9 +1746,7 @@ function init() {
     });
   });
   $("#view-monitoring").addEventListener("change", handleMonitoringCheckboxChange);
-  $("#view-monitoring").addEventListener("click", handleMonitoringRestoreClick);
   $("#view-dashboard").addEventListener("change", handleMonitoringCheckboxChange);
-  $("#view-dashboard").addEventListener("click", handleMonitoringRestoreClick);
   $("#user-form").addEventListener("submit", event => {
     event.preventDefault();
     syncEraInputsToNative($("#user-form"));

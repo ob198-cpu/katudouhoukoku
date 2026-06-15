@@ -468,23 +468,6 @@ main {
   background: var(--danger);
 }
 
-.monitoring-restore-btn {
-  border: 1px solid #b8c9df;
-  border-radius: 999px;
-  padding: 5px 9px;
-  color: var(--primary-dark);
-  background: #fff;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 900;
-  white-space: nowrap;
-}
-
-.monitoring-restore-btn:hover {
-  border-color: var(--primary);
-  background: #eef6ff;
-}
-
 .monitoring-person-name.inline-name {
   width: 100%;
   min-width: 92px;
