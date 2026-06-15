@@ -123,6 +123,11 @@
             <h3 id="monitoring-billing-title">給付費請求管理</h3>
             <p class="muted">表示月の1日から10日に、前月モニタリング分の請求と送信を確認します。</p>
           </div>
+          <div class="monitoring-sub-toolbar">
+            <button type="button" class="btn-secondary" id="billing-prev-target-month">前月</button>
+            <button type="button" class="btn-secondary" id="billing-next-target-month">翌月</button>
+            <label>対象実施月<input type="month" id="billing-source-month"></label>
+          </div>
           <div class="monitoring-table-wrap">
             <table class="monitoring-table">
               <thead>
@@ -366,6 +371,6 @@
     </div>
   </template>
 
-  <script src="app.js?v=20260615-notice-month-matrix"></script>
+  <script src="app.js?v=20260615-billing-target-month"></script>
 </body>
 </html>

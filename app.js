@@ -986,7 +986,9 @@ function renderMonitoringManagement() {
   if (!input.value) input.value = currentMonthKey();
 
   const monthKey = input.value;
-  const billingSourceMonth = addMonthsToKey(monthKey, -1);
+  const billingInput = $("#billing-source-month");
+  if (billingInput && !billingInput.value) billingInput.value = addMonthsToKey(monthKey, -1);
+  const billingSourceMonth = billingInput?.value || addMonthsToKey(monthKey, -1);
   const workUsers = monitoringTargetUsers(monthKey);
   const billingUsers = monitoringTargetUsers(billingSourceMonth);
   const noticeUsers = loadAll()
@@ -995,7 +997,7 @@ function renderMonitoringManagement() {
   const noticeMonths = noticeMonthKeys(monthKey);
 
   $("#monitoring-work-title").textContent = `${monthKeyLabel(monthKey)} モニタリング実施管理`;
-  $("#monitoring-billing-title").textContent = `${monthKeyLabel(monthKey)} 給付費請求管理（${monthKeyLabel(billingSourceMonth)}実施分）`;
+  $("#monitoring-billing-title").textContent = `${monthKeyLabel(billingSourceMonth)}実施分 給付費請求管理`;
   $("#monitoring-notice-title").textContent = `${monthKeyLabel(monthKey)}からの給付費の受領通知`;
 
   const workRecords = workUsers.map(user => ({ user, record: monitoringRecord(user, monthKey) }));
@@ -1748,13 +1750,28 @@ function init() {
   $("#monitoring-month").value = currentMonthKey();
   $("#monitoring-prev-month").addEventListener("click", () => {
     $("#monitoring-month").value = addMonthsToKey($("#monitoring-month").value, -1);
+    $("#billing-source-month").value = addMonthsToKey($("#monitoring-month").value, -1);
     renderMonitoringManagement();
   });
   $("#monitoring-next-month").addEventListener("click", () => {
     $("#monitoring-month").value = addMonthsToKey($("#monitoring-month").value, 1);
+    $("#billing-source-month").value = addMonthsToKey($("#monitoring-month").value, -1);
     renderMonitoringManagement();
   });
-  $("#monitoring-month").addEventListener("change", renderMonitoringManagement);
+  $("#monitoring-month").addEventListener("change", () => {
+    $("#billing-source-month").value = addMonthsToKey($("#monitoring-month").value, -1);
+    renderMonitoringManagement();
+  });
+  $("#billing-source-month").value = addMonthsToKey($("#monitoring-month").value || currentMonthKey(), -1);
+  $("#billing-prev-target-month").addEventListener("click", () => {
+    $("#billing-source-month").value = addMonthsToKey($("#billing-source-month").value, -1);
+    renderMonitoringManagement();
+  });
+  $("#billing-next-target-month").addEventListener("click", () => {
+    $("#billing-source-month").value = addMonthsToKey($("#billing-source-month").value, 1);
+    renderMonitoringManagement();
+  });
+  $("#billing-source-month").addEventListener("change", renderMonitoringManagement);
   $$("[data-monitoring-tab]").forEach(button => {
     button.addEventListener("click", () => {
       $$("[data-monitoring-tab]").forEach(tab => tab.classList.remove("active"));
