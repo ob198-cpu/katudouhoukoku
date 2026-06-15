@@ -447,12 +447,12 @@ main {
 
 .monitoring-table {
   width: 100%;
-  min-width: 980px;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 .dashboard-monitoring-table .monitoring-table {
-  min-width: 920px;
+  min-width: 0;
 }
 
 .monitoring-notice-month-table {
@@ -473,16 +473,43 @@ main {
 .monitoring-table th,
 .monitoring-table td {
   border-bottom: 1px solid var(--line);
-  padding: 9px 8px;
+  padding: 8px 5px;
   vertical-align: middle;
   text-align: left;
   white-space: nowrap;
+  font-size: 13px;
 }
 
 .monitoring-table th {
   color: var(--primary-dark);
   background: #eef5ff;
   font-weight: 900;
+}
+
+.monitoring-table:not(.monitoring-notice-month-table) th:first-child,
+.monitoring-table:not(.monitoring-notice-month-table) td:first-child {
+  width: 110px;
+}
+
+.monitoring-table:not(.monitoring-notice-month-table) th:nth-child(2),
+.monitoring-table:not(.monitoring-notice-month-table) td:nth-child(2) {
+  width: 88px;
+  text-align: center;
+}
+
+.monitoring-table:not(.monitoring-notice-month-table) th:nth-child(n+3),
+.monitoring-table:not(.monitoring-notice-month-table) td:nth-child(n+3) {
+  text-align: center;
+}
+
+.monitoring-work-panel[data-monitoring-panel="billing"] .monitoring-table th:first-child,
+.monitoring-work-panel[data-monitoring-panel="billing"] .monitoring-table td:first-child {
+  width: 100px;
+}
+
+.monitoring-work-panel[data-monitoring-panel="billing"] .monitoring-table th:nth-child(2),
+.monitoring-work-panel[data-monitoring-panel="billing"] .monitoring-table td:nth-child(2) {
+  width: 92px;
 }
 
 .monitoring-table tr:last-child td {
@@ -504,11 +531,12 @@ main {
 
 .monitoring-check-cell {
   text-align: center !important;
+  width: 76px;
 }
 
 .monitoring-check-cell input {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 .monitoring-status-pill {
@@ -517,7 +545,7 @@ main {
   justify-content: center;
   border-radius: 999px;
   min-width: 76px;
-  padding: 5px 9px;
+  padding: 4px 7px;
   color: #fff;
   background: var(--muted);
   font-size: 12px;
@@ -544,8 +572,8 @@ main {
 
 .monitoring-person-name.inline-name {
   width: 100%;
-  min-width: 92px;
-  padding: 7px 8px;
+  min-width: 0;
+  padding: 6px 7px;
 }
 
 .renewal-person-card {
