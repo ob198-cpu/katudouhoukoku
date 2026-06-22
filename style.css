@@ -539,6 +539,24 @@ main {
   height: 16px;
 }
 
+.monitoring-auto-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #58708d;
+  background: #edf3fa;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.monitoring-auto-label.target {
+  color: #fff;
+  background: var(--primary);
+}
+
 .monitoring-status-pill {
   display: inline-flex;
   align-items: center;

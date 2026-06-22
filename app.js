@@ -1086,16 +1086,13 @@ function renderMonitoringManagement() {
       <tr class="monitoring-${status.type}">
         <td><strong>${escapeHtml(user.name || "(無名)")}</strong></td>
         <td>${escapeHtml(monthKeyLabel(billingSourceMonth))}</td>
-        ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "recordDone", record.recordDone)}
-        ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "meetingDone", record.meetingDone)}
-        ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "reportDone", record.reportDone)}
-        ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "addOn", record.addOn)}
+        <td class="monitoring-check-cell"><span class="monitoring-auto-label ${record.meetingDone ? "target" : ""}">${record.meetingDone ? "対象" : "-"}</span></td>
         ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "billingDone", record.billingDone)}
         ${monitoringCheckboxHtml(user, billingSourceMonth, "billing", "billingSent", record.billingSent)}
         <td><span class="monitoring-status-pill ${status.type}">${escapeHtml(status.text)}</span></td>
       </tr>
     `;
-  }).join("") : `<tr><td colspan="9">${escapeHtml(monthKeyLabel(billingSourceMonth))}のモニタリング対象者はいません。</td></tr>`;
+  }).join("") : `<tr><td colspan="6">${escapeHtml(monthKeyLabel(billingSourceMonth))}のモニタリング対象者はいません。</td></tr>`;
 
   $("#monitoring-notice-table").innerHTML = noticeUsers.length ? `
     <table class="monitoring-table monitoring-notice-month-table">
