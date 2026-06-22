@@ -2,7 +2,8 @@ const REPORTS_KEY = "production_activity_reports_v2";
 const ACTIVITIES_KEY = "production_activity_items_v2";
 const ADMIN_PIN_KEY = "production_activity_admin_pin_v1";
 const ADMIN_SESSION_KEY = "production_activity_admin_unlocked";
-const DEFAULT_ADMIN_PIN = "0000";
+const DEFAULT_ADMIN_PIN = "";
+const LEGACY_DEFAULT_ADMIN_PIN = "0000";
 
 const DEFAULT_ACTIVITIES = [
   { id: "transcription", label: "文字起こし", hint: "納品したかどうか", active: true },
@@ -231,6 +232,12 @@ function downloadText(filename, text, type = "text/plain;charset=utf-8") {
   URL.revokeObjectURL(url);
 }
 
+function currentAdminPin() {
+  const savedPin = localStorage.getItem(ADMIN_PIN_KEY);
+  if (savedPin === null || savedPin === LEGACY_DEFAULT_ADMIN_PIN) return DEFAULT_ADMIN_PIN;
+  return savedPin;
+}
+
 function initFormPage() {
   const dateInput = $("#report-date");
   const minutesSelect = $("#report-minutes");
@@ -327,7 +334,7 @@ function initAdminPage() {
   $("#admin-login-form")?.addEventListener("submit", event => {
     event.preventDefault();
     const pin = $("#admin-pin")?.value || "";
-    const savedPin = localStorage.getItem(ADMIN_PIN_KEY) || DEFAULT_ADMIN_PIN;
+    const savedPin = currentAdminPin();
     if (pin !== savedPin) {
       setMessage("#admin-login-message", "PINが違います。", "error");
       return;
