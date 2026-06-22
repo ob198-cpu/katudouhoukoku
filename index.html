@@ -3,524 +3,66 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>受給者証・サービス更新期限管理システム</title>
-  <link rel="stylesheet" href="style.css?v=20260622-production-report">
+  <title>生産活動報告フォーム</title>
+  <link rel="stylesheet" href="style.css?v=20260622-standalone">
 </head>
-<body>
-  <header class="app-header">
+<body data-page="form">
+  <header class="site-header">
     <div>
-      <p class="eyebrow">Renewal Deadline Board</p>
-      <h1>受給者証・サービス更新期限管理システム</h1>
+      <p class="eyebrow">Production Activity Report</p>
+      <h1>生産活動報告フォーム</h1>
     </div>
-    <nav class="tabs" aria-label="主要メニュー">
-      <button class="tab-btn active" data-view="dashboard">ダッシュボード</button>
-      <button class="tab-btn" data-view="personal">個人シート</button>
-      <button class="tab-btn" data-view="production">生産活動</button>
-      <button class="tab-btn" data-view="monitoring">モニタリング</button>
-      <button class="tab-btn" data-view="backup">バックアップ</button>
-    </nav>
+    <a class="admin-link" href="admin.html">管理者画面</a>
   </header>
 
-  <main>
-    <section id="view-dashboard" class="view active">
-      <div class="view-header">
+  <main class="form-shell">
+    <section class="form-panel" aria-labelledby="report-title">
+      <div class="panel-head">
         <div>
-          <h2>更新期限ダッシュボード</h2>
-          <p class="muted">期限30日前から対象者を赤く表示し、更新手続きの抜け漏れを防ぎます。</p>
+          <h2 id="report-title">毎日の生産活動報告</h2>
+          <p>何の仕事を何時間行ったか、進捗とあわせて記録します。</p>
         </div>
+        <span class="required-note">* 必須</span>
       </div>
 
-      <div class="home-split-dashboard">
-        <section class="home-panel monitoring-panel" aria-labelledby="monitoring-board-title">
-          <div class="board-title">
-            <div>
-              <h3 id="monitoring-board-title">モニタリング月</h3>
-              <p class="muted">当月対象者を赤く表示します。</p>
-            </div>
-            <span class="count-badge" id="count-monitoring">0</span>
-          </div>
-          <div id="monitoring-card-list" class="monitoring-card-list"></div>
+      <form id="report-form" autocomplete="off">
+        <div class="form-grid">
+          <label>
+            日付 <span class="required">*</span>
+            <input type="date" id="report-date" required>
+          </label>
+
+          <label>
+            氏名 <span class="required">*</span>
+            <input type="text" id="report-name" required>
+          </label>
+
+          <label>
+            所要時間（トータル分数） <span class="required">*</span>
+            <select id="report-minutes" required></select>
+          </label>
+        </div>
+
+        <section class="field-block">
+          <div class="field-title">生産活動内容（複数回答可能） <span class="required">*</span></div>
+          <div id="activity-list" class="activity-grid"></div>
         </section>
 
-        <section class="home-panel recipient-panel" aria-labelledby="renewal-board-title">
-          <div class="board-title">
-            <div>
-              <h3 id="renewal-board-title">受給者証・サービス更新</h3>
-              <p class="muted">期限30日前から対象者が赤くなります。手続きはタグを押すと済になります。</p>
-            </div>
-            <span class="count-badge" id="count-renewal">0</span>
-          </div>
-          <div id="renewal-card-list" class="renewal-card-list"></div>
-        </section>
-      </div>
-    </section>
+        <label class="progress-field">
+          進捗状況 <span class="required">*</span>
+          <textarea id="report-progress" rows="7" required></textarea>
+        </label>
 
-    <section id="view-personal" class="view">
-      <div class="view-header">
-        <div>
-          <h2>個人シート</h2>
-          <p class="muted">入力済みの利用者を選び、個別の台帳を確認します。</p>
-        </div>
-        <button class="btn-primary" id="btn-new-from-personal">+ 新規入力</button>
-      </div>
-      <div id="personal-sheet-list" class="personal-sheet-list"></div>
-    </section>
+        <div id="form-message" class="form-message" role="status" aria-live="polite"></div>
 
-    <section id="view-production" class="view">
-      <div class="view-header">
-        <div>
-          <h2>生産活動報告</h2>
-          <p class="muted">毎日の作業内容、所要時間、進捗を記録します。</p>
-        </div>
-      </div>
-
-      <div class="production-mode-tabs" aria-label="生産活動メニュー">
-        <button type="button" class="production-mode-tab active" data-production-tab="form">フォーム</button>
-        <button type="button" class="production-mode-tab" data-production-tab="stats">集計</button>
-        <button type="button" class="production-mode-tab" data-production-tab="admin">管理画面</button>
-      </div>
-
-      <section class="production-panel active" data-production-panel="form">
-        <form id="production-form" class="production-form" autocomplete="off">
-          <input type="hidden" id="production-report-id">
-          <fieldset class="section">
-            <legend>生産活動報告フォーム</legend>
-            <div class="grid-2">
-              <label>日付 <span class="req">*</span><input type="date" id="production-date" required></label>
-              <label>氏名 <span class="req">*</span>
-                <input type="text" id="production-name" list="production-name-list" required>
-                <datalist id="production-name-list"></datalist>
-              </label>
-              <label>所要時間（トータル分数） <span class="req">*</span>
-                <select id="production-minutes" required></select>
-              </label>
-              <label class="span-2">進捗状況 <span class="req">*</span>
-                <textarea id="production-progress" rows="6" required></textarea>
-              </label>
-            </div>
-            <div class="production-field-block">
-              <div class="production-field-title">生産活動内容（複数回答可能） <span class="req">*</span></div>
-              <div id="production-activity-options" class="activity-checkbox-grid"></div>
-            </div>
-            <div class="form-footer production-form-footer">
-              <button type="button" class="btn-secondary" id="production-clear-form">入力をクリア</button>
-              <button type="submit" class="btn-primary" id="production-submit">報告を保存</button>
-            </div>
-          </fieldset>
-        </form>
-      </section>
-
-      <section class="production-panel" data-production-panel="stats">
-        <div class="production-toolbar-card">
-          <div class="production-period-row">
-            <button type="button" class="btn-secondary" id="production-prev-period">前へ</button>
-            <button type="button" class="btn-secondary" id="production-next-period">次へ</button>
-            <label>集計単位
-              <select id="production-period-mode">
-                <option value="week">週</option>
-                <option value="month">月</option>
-              </select>
-            </label>
-            <label>基準日
-              <input type="date" id="production-period-date">
-            </label>
-            <div class="production-period-label" id="production-period-label"></div>
-          </div>
-          <div class="production-kpi-row">
-            <div class="production-kpi-card"><span>報告件数</span><strong id="production-total-count">0件</strong></div>
-            <div class="production-kpi-card"><span>合計時間</span><strong id="production-total-hours">0時間</strong></div>
-            <div class="production-kpi-card"><span>職員数</span><strong id="production-staff-count">0名</strong></div>
-            <div class="production-kpi-card"><span>最多活動</span><strong id="production-top-activity">-</strong></div>
-          </div>
-        </div>
-
-        <div class="production-chart-grid">
-          <article class="production-chart-card">
-            <div class="production-chart-head">
-              <h3>全体グラフ</h3>
-              <span>活動別</span>
-            </div>
-            <div id="production-overall-chart" class="production-bar-chart"></div>
-          </article>
-          <article class="production-chart-card">
-            <div class="production-chart-head">
-              <h3>個別グラフ</h3>
-              <select id="production-staff-select" aria-label="職員選択"></select>
-            </div>
-            <div id="production-person-chart" class="production-bar-chart"></div>
-          </article>
-        </div>
-
-        <div class="production-table-grid">
-          <article class="production-chart-card">
-            <div class="production-chart-head">
-              <h3>活動別統計</h3>
-            </div>
-            <div id="production-activity-summary"></div>
-          </article>
-          <article class="production-chart-card">
-            <div class="production-chart-head">
-              <h3>職員別統計</h3>
-            </div>
-            <div id="production-staff-summary"></div>
-          </article>
-        </div>
-      </section>
-
-      <section class="production-panel" data-production-panel="admin">
-        <div class="production-admin-grid">
-          <article class="production-chart-card">
-            <div class="production-chart-head">
-              <h3>項目編集</h3>
-              <button type="button" class="btn-secondary" id="production-add-activity">項目追加</button>
-            </div>
-            <div id="production-activity-editor" class="production-activity-editor"></div>
-            <div class="actions production-admin-actions">
-              <button type="button" class="btn-secondary" id="production-reset-activities">初期項目に戻す</button>
-              <button type="button" class="btn-primary" id="production-save-activities">項目を保存</button>
-            </div>
-          </article>
-          <article class="production-chart-card">
-            <div class="production-chart-head">
-              <h3>報告一覧</h3>
-              <button type="button" class="btn-secondary" id="production-export-csv">CSVエクスポート</button>
-            </div>
-            <div id="production-report-list"></div>
-          </article>
-        </div>
-      </section>
-    </section>
-
-    <section id="view-monitoring" class="view">
-      <div class="view-header">
-        <div>
-          <h2>モニタリング</h2>
-          <p class="muted">実施、請求、代理受領通知を月ごとに確認します。</p>
-        </div>
-      </div>
-
-      <div class="monitoring-management">
-        <div class="monitoring-toolbar-card">
-          <div class="month-control-row">
-            <button type="button" class="btn-secondary" id="monitoring-prev-month">前月</button>
-            <button type="button" class="btn-secondary" id="monitoring-next-month">翌月</button>
-            <label>表示月
-              <span class="month-picker">
-                <input type="number" id="monitoring-year" min="2020" max="2126" inputmode="numeric" aria-label="表示年">
-                <span>年</span>
-                <select id="monitoring-month-number" aria-label="表示月"></select>
-                <span>月</span>
-              </span>
-              <input type="hidden" id="monitoring-month">
-            </label>
-          </div>
-          <div class="monitoring-kpi-row">
-            <div class="monitoring-kpi-card"><span>実施未完了</span><strong id="monitoring-work-count">0件</strong></div>
-            <div class="monitoring-kpi-card"><span>署名返送待ち</span><strong id="monitoring-return-count">0件</strong></div>
-            <div class="monitoring-kpi-card"><span>請求未送信</span><strong id="monitoring-billing-count">0件</strong></div>
-            <div class="monitoring-kpi-card"><span>受領通知未送付</span><strong id="monitoring-notice-count">0件</strong></div>
-          </div>
-        </div>
-
-        <div class="monitoring-mode-tabs">
-          <button type="button" class="monitoring-mode-tab active" data-monitoring-tab="work">1. 実施管理</button>
-          <button type="button" class="monitoring-mode-tab" data-monitoring-tab="billing">2. 給付費請求</button>
-          <button type="button" class="monitoring-mode-tab" data-monitoring-tab="notice">3. 給付費の受領通知</button>
-        </div>
-
-        <section class="monitoring-work-panel active" data-monitoring-panel="work">
-          <div class="monitoring-panel-head">
-            <h3 id="monitoring-work-title">モニタリング実施管理</h3>
-            <p class="muted">訪問・記録・報告書・郵送・署名返送・役所送付までを一括管理します。</p>
-          </div>
-          <div class="monitoring-table-wrap">
-            <table class="monitoring-table">
-              <thead>
-                <tr>
-                  <th>氏名</th>
-                  <th>状態</th>
-                  <th>記録作成</th>
-                  <th>会議録作成</th>
-                  <th>報告書作成</th>
-                  <th>報告書郵送</th>
-                  <th>報告書返送</th>
-                  <th>写しを郵送</th>
-                </tr>
-              </thead>
-              <tbody id="monitoring-work-body"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="monitoring-work-panel" data-monitoring-panel="billing">
-          <div class="monitoring-panel-head">
-            <h3 id="monitoring-billing-title">給付費請求管理</h3>
-            <p class="muted">表示月の1日から10日に、前月モニタリング分の請求と送信を確認します。</p>
-          </div>
-          <div class="monitoring-sub-toolbar">
-            <button type="button" class="btn-secondary" id="billing-prev-target-month">前の実施月</button>
-            <button type="button" class="btn-secondary" id="billing-next-target-month">次の実施月</button>
-            <label>対象実施月
-              <span class="month-picker">
-                <input type="number" id="billing-source-year" min="2020" max="2126" inputmode="numeric" aria-label="対象実施年">
-                <span>年</span>
-                <select id="billing-source-month-number" aria-label="対象実施月"></select>
-                <span>月</span>
-              </span>
-              <input type="hidden" id="billing-source-month">
-            </label>
-          </div>
-          <div class="monitoring-table-wrap">
-            <table class="monitoring-table">
-              <thead>
-                <tr>
-                  <th>氏名</th>
-                  <th>実施月</th>
-                  <th>加算対象</th>
-                  <th>給付費請求</th>
-                  <th>請求情報送信</th>
-                  <th>状態</th>
-                </tr>
-              </thead>
-              <tbody id="monitoring-billing-body"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="monitoring-work-panel" data-monitoring-panel="notice">
-          <div class="monitoring-panel-head">
-            <h3 id="monitoring-notice-title">給付費の受領通知</h3>
-            <p class="muted">利用者ごとに、各月の受領通知を送付したか確認します。</p>
-          </div>
-          <div class="monitoring-sub-toolbar">
-            <button type="button" class="btn-secondary" id="notice-prev-period">前年</button>
-            <button type="button" class="btn-secondary" id="notice-next-period">翌年</button>
-            <label>表示年
-              <span class="month-picker">
-                <input type="number" id="notice-start-year" min="2020" max="2126" inputmode="numeric" aria-label="受領通知表示開始年">
-                <span>年</span>
-              </span>
-              <input type="hidden" id="notice-start-month">
-            </label>
-          </div>
-          <div class="monitoring-table-wrap">
-            <div id="monitoring-notice-table"></div>
-          </div>
-        </section>
-      </div>
-    </section>
-
-    <section id="view-detail" class="view">
-      <div class="view-header">
-        <div>
-          <h2 id="detail-title">確認画面</h2>
-          <p class="muted">ダッシュボードから直接編集せず、まず内容を確認します。</p>
-        </div>
-        <div class="actions">
-          <button class="btn-secondary" data-view-link="dashboard">ダッシュボードへ戻る</button>
-          <button class="btn-primary" id="btn-edit-from-detail">編集する</button>
-        </div>
-      </div>
-      <div id="detail-content" class="detail-grid"></div>
-    </section>
-
-    <section id="view-input" class="view">
-      <div class="view-header sticky-actions">
-        <div>
-          <h2 id="input-title">入力シート</h2>
-          <p class="muted">指定項目だけを入力します。保存後は確認画面へ移動します。</p>
-        </div>
-        <div class="actions">
-          <button class="btn-secondary" id="btn-cancel">キャンセル</button>
-          <button class="btn-primary" id="btn-save-top">保存</button>
-        </div>
-      </div>
-
-      <form id="user-form" autocomplete="off">
-        <input type="hidden" id="user-id">
-
-        <fieldset class="section">
-          <legend>1. 個人情報</legend>
-          <div class="grid-2">
-            <label>氏名 <span class="req">*</span><input type="text" id="name" required></label>
-            <label>フリガナ<input type="text" id="kana"></label>
-            <label>生年月日<input type="date" id="birthday"></label>
-            <label>電話番号<input type="tel" id="phone" placeholder="例: 011-000-0000"></label>
-            <label class="span-2">住所<input type="text" id="address"></label>
-            <label>受給者証番号<input type="text" id="recipient-no"></label>
-            <label>利用状態
-              <select id="user-status">
-                <option value="active">利用中</option>
-                <option value="paused">停止</option>
-                <option value="ended">終了</option>
-                <option value="hidden">非表示</option>
-              </select>
-            </label>
-          </div>
-        </fieldset>
-
-        <fieldset class="section">
-          <legend>2. 受給者証情報</legend>
-          <div class="grid-2">
-            <label>管轄する区
-              <select id="ward"></select>
-            </label>
-            <label id="custom-ward-wrap" class="hidden">区名（手入力）
-              <input type="text" id="custom-ward" placeholder="例: 札幌市〇〇区">
-            </label>
-            <label>自治体コード6桁
-              <input type="text" id="municipal-code" maxlength="6" pattern="\d{6}" inputmode="numeric" placeholder="011015">
-            </label>
-            <label>障害者種別
-              <select id="disability-type">
-                <option value="">選択してください</option>
-                <option>身体障害</option>
-                <option>知的障害</option>
-                <option>精神障害</option>
-                <option>発達障害</option>
-                <option>難病等</option>
-                <option>重複</option>
-                <option>その他</option>
-              </select>
-            </label>
-            <label>受給者証 有効期間 開始<input type="date" id="recipient-start"></label>
-          </div>
-        </fieldset>
-
-        <fieldset class="section">
-          <legend>3. 計画相談支援情報</legend>
-          <div class="grid-2">
-            <label>有効期間 開始<input type="date" id="plan-start"></label>
-            <label>有効期間 終了<input type="date" id="plan-end"></label>
-            <label>モニタリング月
-              <select id="monitoring-cycle">
-                <option value="">選択してください</option>
-                <option value="1か月">1か月</option>
-                <option value="2か月">2か月</option>
-                <option value="3か月">3か月</option>
-                <option value="4か月">4か月</option>
-                <option value="5か月">5か月</option>
-                <option value="半年">半年</option>
-              </select>
-            </label>
-            <label>利用者負担上限額<input type="text" id="payment-cap" placeholder="例: 0 / 4,600 / 9,300 / 37,200"></label>
-          </div>
-        </fieldset>
-
-        <fieldset class="section">
-          <legend>4. 訓練等給付費情報1</legend>
-          <div class="service-rows" id="training1-rows"></div>
-        </fieldset>
-
-        <fieldset class="section">
-          <legend>5. 訓練等給付費情報2（共同生活援助）</legend>
-          <div class="service-rows" id="training2-rows"></div>
-        </fieldset>
-
-        <fieldset class="section">
-          <legend>6. 介護給付費情報1</legend>
-          <div class="service-rows" id="care1-rows"></div>
-          <button type="button" class="btn-add" data-target="care1">+ サービス追加</button>
-        </fieldset>
-
-        <fieldset class="section">
-          <legend>7. 介護給付費情報2</legend>
-          <div class="service-rows" id="care2-rows"></div>
-          <button type="button" class="btn-add" data-target="care2">+ サービス追加</button>
-        </fieldset>
-
-        <fieldset class="section check-section">
-          <legend>8. チェック機能（更新時タスク）</legend>
-          <div class="check-grid">
-            <div class="task-box">
-              <label><input type="checkbox" id="chk-document"> 1. 書類作成</label>
-              <div class="grid-2">
-                <label>完了日<input type="date" id="document-completed"></label>
-                <label>メモ<input type="text" id="document-note"></label>
-              </div>
-            </div>
-            <div class="task-box">
-              <label><input type="checkbox" id="chk-send"> 2. 役所送付</label>
-              <div class="grid-2">
-                <label>完了日<input type="date" id="send-completed"></label>
-                <label>メモ<input type="text" id="send-note"></label>
-              </div>
-            </div>
-            <div class="task-box">
-              <label><input type="checkbox" id="chk-confirm"> 3. 本人受給者交付確認</label>
-              <div class="grid-2">
-                <label>完了日<input type="date" id="confirm-completed"></label>
-                <label>メモ<input type="text" id="confirm-note"></label>
-              </div>
-            </div>
-            <div class="task-box">
-              <label><input type="checkbox" id="chk-pdf"> 4. 受給者証の写し保存</label>
-              <div class="grid-2">
-                <label>完了日<input type="date" id="pdf-completed"></label>
-                <label>メモ<input type="text" id="pdf-note"></label>
-              </div>
-            </div>
-            <div class="task-box">
-              <label><input type="checkbox" id="chk-update-info"> 5. 個人シートの更新</label>
-              <div class="grid-2">
-                <label>完了日<input type="date" id="update-completed"></label>
-                <label>メモ<input type="text" id="update-note"></label>
-              </div>
-            </div>
-          </div>
-        </fieldset>
-
-        <fieldset class="section">
-          <legend>備考・申し送り</legend>
-          <label>備考<textarea id="note" rows="4"></textarea></label>
-        </fieldset>
-
-        <div class="form-footer">
-          <button type="button" class="btn-danger" id="btn-delete" style="display:none;">この利用者を削除</button>
-          <button type="button" class="btn-secondary" id="btn-cancel-bottom">キャンセル</button>
-          <button type="submit" class="btn-primary">保存して確認</button>
+        <div class="form-actions">
+          <button type="button" class="secondary-button" id="clear-form">入力をクリア</button>
+          <button type="submit" class="primary-button">報告を送信</button>
         </div>
       </form>
     </section>
-
-    <section id="view-backup" class="view">
-      <div class="view-header">
-        <div>
-          <h2>バックアップ</h2>
-          <p class="muted">HTML版はブラウザ内に保存します。定期的にExcelで開けるCSVで保管してください。</p>
-        </div>
-      </div>
-      <div class="backup-box">
-        <p>登録件数: <strong id="record-count">0</strong> 件</p>
-        <p class="backup-note">この画面のデータはブラウザ内に保存されています。定期的にCSVエクスポートで控えを残してください。</p>
-        <div class="actions">
-          <button class="btn-primary" id="btn-export">CSVエクスポート（Excel用）</button>
-          <label class="btn-secondary file-label">CSVインポート<input type="file" id="import-file" accept=".csv,text/csv" hidden></label>
-        </div>
-      </div>
-    </section>
   </main>
 
-  <template id="tpl-service-row">
-    <div class="service-row">
-      <select class="svc-type"></select>
-      <input type="date" class="svc-start" title="開始日" data-date-label="開始日">
-      <input type="date" class="svc-end" title="終了日" data-date-label="終了日">
-      <input type="text" class="svc-office" placeholder="使用事業所">
-      <select class="svc-level hidden">
-        <option value="">区分種別</option>
-        <option>区分1</option>
-        <option>区分2</option>
-        <option>区分3</option>
-        <option>区分4</option>
-        <option>区分5</option>
-        <option>区分6</option>
-        <option>区分なし</option>
-      </select>
-      <button type="button" class="btn-remove">削除</button>
-    </div>
-  </template>
-
-  <script src="app.js?v=20260622-production-report"></script>
+  <script src="app.js?v=20260622-standalone"></script>
 </body>
 </html>

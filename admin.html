@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>生産活動報告 管理画面</title>
+  <link rel="stylesheet" href="style.css?v=20260622-standalone">
+</head>
+<body data-page="admin">
+  <header class="site-header">
+    <div>
+      <p class="eyebrow">Admin Console</p>
+      <h1>生産活動報告 管理画面</h1>
+    </div>
+    <a class="admin-link" href="index.html">フォームへ戻る</a>
+  </header>
+
+  <main class="admin-shell">
+    <section id="admin-lock" class="login-panel">
+      <div class="panel-head">
+        <div>
+          <h2>管理者ログイン</h2>
+          <p>管理者PINを入力してください。</p>
+        </div>
+      </div>
+      <form id="admin-login-form" class="login-form" autocomplete="off">
+        <label>
+          管理者PIN
+          <input type="password" id="admin-pin" inputmode="numeric" required>
+        </label>
+        <button type="submit" class="primary-button">ログイン</button>
+        <div id="admin-login-message" class="form-message" role="status" aria-live="polite"></div>
+      </form>
+    </section>
+
+    <section id="admin-console" class="admin-console hidden">
+      <div class="admin-tabs" aria-label="管理メニュー">
+        <button type="button" class="admin-tab active" data-admin-view="summary">集計</button>
+        <button type="button" class="admin-tab" data-admin-view="reports">報告一覧</button>
+        <button type="button" class="admin-tab" data-admin-view="settings">項目編集</button>
+      </div>
+
+      <section class="admin-view active" data-admin-panel="summary">
+        <div class="toolbar-card">
+          <div class="period-row">
+            <button type="button" class="secondary-button" id="period-prev">前へ</button>
+            <button type="button" class="secondary-button" id="period-next">次へ</button>
+            <label>
+              集計単位
+              <select id="period-mode">
+                <option value="week">週</option>
+                <option value="month">月</option>
+              </select>
+            </label>
+            <label>
+              基準日
+              <input type="date" id="period-date">
+            </label>
+            <div id="period-label" class="period-label"></div>
+          </div>
+          <div class="kpi-grid">
+            <div class="kpi-card"><span>報告件数</span><strong id="total-count">0件</strong></div>
+            <div class="kpi-card"><span>合計時間</span><strong id="total-time">0時間</strong></div>
+            <div class="kpi-card"><span>人数</span><strong id="staff-count">0名</strong></div>
+            <div class="kpi-card"><span>最多活動</span><strong id="top-activity">-</strong></div>
+          </div>
+        </div>
+
+        <div class="chart-grid">
+          <article class="card">
+            <div class="card-head">
+              <h2>全体グラフ</h2>
+              <span>活動別</span>
+            </div>
+            <div id="overall-chart" class="bar-chart"></div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <h2>個別グラフ</h2>
+              <select id="staff-select" aria-label="職員を選択"></select>
+            </div>
+            <div id="staff-chart" class="bar-chart"></div>
+          </article>
+        </div>
+
+        <div class="table-grid">
+          <article class="card">
+            <div class="card-head">
+              <h2>活動別統計</h2>
+            </div>
+            <div id="activity-summary"></div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <h2>個人別統計</h2>
+            </div>
+            <div id="staff-summary"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="admin-view" data-admin-panel="reports">
+        <article class="card">
+          <div class="card-head">
+            <h2>報告一覧</h2>
+            <div class="inline-actions">
+              <button type="button" class="secondary-button" id="export-csv">CSV出力</button>
+              <button type="button" class="danger-button" id="delete-all-reports">全削除</button>
+            </div>
+          </div>
+          <div id="report-table"></div>
+        </article>
+      </section>
+
+      <section class="admin-view" data-admin-panel="settings">
+        <div class="settings-grid">
+          <article class="card">
+            <div class="card-head">
+              <h2>生産活動項目</h2>
+              <button type="button" class="secondary-button" id="add-activity">項目追加</button>
+            </div>
+            <div id="activity-editor" class="activity-editor"></div>
+            <div class="form-actions">
+              <button type="button" class="secondary-button" id="reset-activities">初期項目に戻す</button>
+              <button type="button" class="primary-button" id="save-activities">項目を保存</button>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <h2>管理者PIN</h2>
+            </div>
+            <form id="pin-form" class="pin-form" autocomplete="off">
+              <label>
+                新しいPIN
+                <input type="password" id="new-pin" inputmode="numeric" minlength="4" required>
+              </label>
+              <button type="submit" class="primary-button">PINを変更</button>
+              <div id="pin-message" class="form-message" role="status" aria-live="polite"></div>
+            </form>
+          </article>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js?v=20260622-standalone"></script>
+</body>
+</html>
