@@ -336,7 +336,7 @@ function initAdminPage() {
     const pin = $("#admin-pin")?.value || "";
     const savedPin = currentAdminPin();
     if (pin !== savedPin) {
-      setMessage("#admin-login-message", "PINが違います。", "error");
+      setMessage("#admin-login-message", "パスワードが違います。", "error");
       return;
     }
     sessionStorage.setItem(ADMIN_SESSION_KEY, "1");
@@ -373,12 +373,12 @@ function initAdminPage() {
     event.preventDefault();
     const pin = $("#new-pin")?.value.trim() || "";
     if (pin.length < 4) {
-      setMessage("#pin-message", "PINは4文字以上で入力してください。", "error");
+      setMessage("#pin-message", "パスワードは4文字以上で入力してください。", "error");
       return;
     }
     localStorage.setItem(ADMIN_PIN_KEY, pin);
     $("#new-pin").value = "";
-    setMessage("#pin-message", "PINを変更しました。", "ok");
+    setMessage("#pin-message", "パスワードを変更しました。", "ok");
   });
 }
 

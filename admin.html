@@ -20,12 +20,12 @@
       <div class="panel-head">
         <div>
           <h2>管理者ログイン</h2>
-          <p>初期状態では空欄のままログインできます。</p>
+          <p>管理者パスワードを入力してください。　※現在テスト版につき未記入でログインできます。</p>
         </div>
       </div>
       <form id="admin-login-form" class="login-form" autocomplete="off">
         <label>
-          管理者PIN
+          管理者パスワード
           <input type="password" id="admin-pin" inputmode="numeric">
         </label>
         <button type="submit" class="primary-button">ログイン</button>
@@ -130,14 +130,14 @@
 
           <article class="card">
             <div class="card-head">
-              <h2>管理者PIN</h2>
+              <h2>管理者パスワード</h2>
             </div>
             <form id="pin-form" class="pin-form" autocomplete="off">
               <label>
-                新しいPIN
+                新しい管理者パスワード
                 <input type="password" id="new-pin" inputmode="numeric" minlength="4" required>
               </label>
-              <button type="submit" class="primary-button">PINを変更</button>
+              <button type="submit" class="primary-button">パスワードを変更</button>
               <div id="pin-message" class="form-message" role="status" aria-live="polite"></div>
             </form>
           </article>
