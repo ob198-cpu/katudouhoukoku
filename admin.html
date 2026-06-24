@@ -107,10 +107,59 @@
             <h2>報告一覧</h2>
             <div class="inline-actions">
               <button type="button" class="secondary-button" id="export-csv">CSV出力</button>
+              <button type="button" class="secondary-button" id="export-backup">バックアップ保存</button>
+              <label class="secondary-button file-button" for="restore-backup">バックアップ復元</label>
+              <input type="file" id="restore-backup" accept="application/json,.json" hidden>
+              <button type="button" class="secondary-button" id="export-history">履歴を保存</button>
               <button type="button" class="danger-button" id="delete-all-reports">全削除</button>
             </div>
           </div>
+          <div class="report-tools">
+            <label>
+              古いデータ検索
+              <input type="search" id="report-search" placeholder="日付・氏名・活動・進捗で検索">
+            </label>
+            <label>
+              開始日
+              <input type="date" id="report-filter-start">
+            </label>
+            <label>
+              終了日
+              <input type="date" id="report-filter-end">
+            </label>
+            <button type="button" class="secondary-button" id="clear-report-filters">検索クリア</button>
+          </div>
+          <section id="report-edit-panel" class="edit-panel hidden" aria-labelledby="report-edit-title">
+            <div class="card-head compact-head">
+              <h3 id="report-edit-title">報告を編集</h3>
+              <button type="button" class="secondary-button small" id="cancel-report-edit">編集をキャンセル</button>
+            </div>
+            <form id="report-edit-form" autocomplete="off">
+              <input type="hidden" id="edit-report-id">
+              <div class="form-grid">
+                <label>日付<input type="date" id="edit-report-date" required></label>
+                <label>氏名<input type="text" id="edit-report-name" required></label>
+                <label>所要時間<select id="edit-report-minutes" required></select></label>
+              </div>
+              <section class="field-block">
+                <div class="field-title">生産活動内容</div>
+                <div id="edit-activity-list" class="activity-grid"></div>
+              </section>
+              <label class="progress-field">
+                進捗状況
+                <textarea id="edit-report-progress" rows="5" required></textarea>
+              </label>
+              <div id="edit-report-message" class="form-message" role="status" aria-live="polite"></div>
+              <div class="form-actions">
+                <button type="submit" class="primary-button">編集内容を保存</button>
+              </div>
+            </form>
+          </section>
           <div id="report-table"></div>
+          <details class="history-panel">
+            <summary>操作履歴</summary>
+            <div id="history-list"></div>
+          </details>
         </article>
       </section>
 

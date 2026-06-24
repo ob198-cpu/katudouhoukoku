@@ -2,6 +2,7 @@ const REPORTS_KEY = "production_activity_reports_v2";
 const ACTIVITIES_KEY = "production_activity_items_v2";
 const ADMIN_PIN_KEY = "production_activity_admin_pin_v1";
 const ADMIN_SESSION_KEY = "production_activity_admin_unlocked";
+const HISTORY_KEY = "production_activity_history_v1";
 const DEFAULT_ADMIN_PIN = "";
 const LEGACY_DEFAULT_ADMIN_PIN = "0000";
 
@@ -191,14 +192,70 @@ function saveReports(reports) {
   localStorage.setItem(REPORTS_KEY, JSON.stringify(reports.map(normalizeReport)));
 }
 
+function loadHistory() {
+  const history = parseJson(HISTORY_KEY, []);
+  return Array.isArray(history) ? history : [];
+}
+
+function saveHistory(history) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 1000)));
+}
+
+function cloneRecord(value) {
+  return JSON.parse(JSON.stringify(value ?? null));
+}
+
+function reportLabel(report = {}) {
+  return `${report.date || ""} ${report.name || ""} ${reportActivityLabels(normalizeReport(report)).join("、")}`.trim();
+}
+
+function addHistory(action, target, before, after) {
+  const source = after || before || {};
+  const entry = {
+    id: uid("history"),
+    at: new Date().toISOString(),
+    action,
+    target,
+    recordId: source.id || "",
+    label: target === "報告" ? reportLabel(source) : String(source.label || target || ""),
+    before: cloneRecord(before),
+    after: cloneRecord(after)
+  };
+  saveHistory([entry, ...loadHistory()]);
+}
+
 function addReport(report) {
   const reports = loadReports();
-  reports.push(normalizeReport(report));
+  const normalized = normalizeReport(report);
+  reports.push(normalized);
   saveReports(reports);
+  addHistory("登録", "報告", null, normalized);
+}
+
+function updateReport(id, nextReport) {
+  const reports = loadReports();
+  const index = reports.findIndex(report => report.id === id);
+  if (index < 0) return false;
+  const before = reports[index];
+  const updated = normalizeReport({
+    ...before,
+    ...nextReport,
+    id: before.id,
+    createdAt: before.createdAt,
+    updatedAt: new Date().toISOString()
+  });
+  reports[index] = updated;
+  saveReports(reports);
+  addHistory("編集", "報告", before, updated);
+  return true;
 }
 
 function deleteReport(id) {
-  saveReports(loadReports().filter(report => report.id !== id));
+  const reports = loadReports();
+  const target = reports.find(report => report.id === id);
+  if (!target) return;
+  saveReports(reports.filter(report => report.id !== id));
+  addHistory("削除", "報告", target, null);
 }
 
 function activityLabel(report, activityId) {
@@ -230,6 +287,20 @@ function downloadText(filename, text, type = "text/plain;charset=utf-8") {
   link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function downloadJson(filename, payload) {
+  downloadText(filename, JSON.stringify(payload, null, 2), "application/json;charset=utf-8");
+}
+
+function backupPayload() {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    reports: loadReports(),
+    activities: loadActivities(),
+    history: loadHistory()
+  };
 }
 
 function currentAdminPin() {
@@ -354,12 +425,27 @@ function initAdminPage() {
   $("#period-date")?.addEventListener("change", renderAdminSummary);
   $("#staff-select")?.addEventListener("change", renderSelectedStaffChart);
   $("#export-csv")?.addEventListener("click", exportReportsCsv);
+  $("#export-backup")?.addEventListener("click", exportBackup);
+  $("#export-history")?.addEventListener("click", exportHistory);
+  $("#restore-backup")?.addEventListener("change", event => restoreBackup(event.target.files?.[0]));
+  $("#report-search")?.addEventListener("input", renderReportTable);
+  $("#report-filter-start")?.addEventListener("change", renderReportTable);
+  $("#report-filter-end")?.addEventListener("change", renderReportTable);
+  $("#clear-report-filters")?.addEventListener("click", clearReportFilters);
+  $("#cancel-report-edit")?.addEventListener("click", cancelReportEdit);
+  $("#report-edit-form")?.addEventListener("submit", saveReportEdit);
   $("#delete-all-reports")?.addEventListener("click", deleteAllReports);
   $("#report-table")?.addEventListener("click", event => {
-    const button = event.target.closest("[data-delete-report]");
-    if (!button) return;
-    if (!confirm("この報告を削除します。よろしいですか？")) return;
-    deleteReport(button.dataset.deleteReport);
+    const editButton = event.target.closest("[data-edit-report]");
+    if (editButton) {
+      startReportEdit(editButton.dataset.editReport);
+      return;
+    }
+    const deleteButton = event.target.closest("[data-delete-report]");
+    if (!deleteButton) return;
+    if (!confirm("この報告を削除します。履歴には削除前データが残ります。よろしいですか？")) return;
+    deleteReport(deleteButton.dataset.deleteReport);
+    cancelReportEdit();
     renderAdminAll();
   });
   $("#add-activity")?.addEventListener("click", addActivityEditorRow);
@@ -400,6 +486,7 @@ function renderAdminAll() {
   renderAdminSummary();
   renderReportTable();
   renderActivityEditor();
+  renderHistory();
 }
 
 function periodRange() {
@@ -562,10 +649,42 @@ function staffSummaryTable(items) {
   `;
 }
 
+function reportSearchText(report) {
+  return [
+    report.date,
+    formatDate(report.date),
+    report.name,
+    reportActivityLabels(report).join(" "),
+    report.minutes,
+    minutesText(report.minutes),
+    report.progress,
+    report.createdAt,
+    report.updatedAt
+  ].join(" ").toLowerCase();
+}
+
+function filteredReportRows() {
+  const query = ($("#report-search")?.value || "").trim().toLowerCase();
+  const start = $("#report-filter-start")?.value || "";
+  const end = $("#report-filter-end")?.value || "";
+  return loadReports()
+    .filter(report => !start || report.date >= start)
+    .filter(report => !end || report.date <= end)
+    .filter(report => !query || reportSearchText(report).includes(query))
+    .sort((a, b) => `${b.date}${b.createdAt}`.localeCompare(`${a.date}${a.createdAt}`));
+}
+
+function clearReportFilters() {
+  if ($("#report-search")) $("#report-search").value = "";
+  if ($("#report-filter-start")) $("#report-filter-start").value = "";
+  if ($("#report-filter-end")) $("#report-filter-end").value = "";
+  renderReportTable();
+}
+
 function renderReportTable() {
   const container = $("#report-table");
   if (!container) return;
-  const reports = loadReports().sort((a, b) => `${b.date}${b.createdAt}`.localeCompare(`${a.date}${a.createdAt}`));
+  const reports = filteredReportRows();
   if (!reports.length) {
     container.innerHTML = '<div class="empty-state">報告はまだありません。</div>';
     return;
@@ -584,13 +703,95 @@ function renderReportTable() {
               <td>${escapeHtml(reportActivityLabels(report).join("、"))}</td>
               <td>${escapeHtml(minutesText(report.minutes))}</td>
               <td>${escapeHtml(report.progress)}</td>
-              <td><button type="button" class="danger-button small" data-delete-report="${escapeHtml(report.id)}">削除</button></td>
+              <td>
+                <div class="inline-actions">
+                  <button type="button" class="secondary-button small" data-edit-report="${escapeHtml(report.id)}">編集</button>
+                  <button type="button" class="danger-button small" data-delete-report="${escapeHtml(report.id)}">削除</button>
+                </div>
+              </td>
             </tr>
           `).join("")}
         </tbody>
       </table>
     </div>
   `;
+}
+
+function fillMinutesSelect(select, selectedValue = "") {
+  if (!select) return;
+  select.innerHTML = '<option value="">選択してください</option>' +
+    TIME_OPTIONS.map(([label, minutes]) => `<option value="${minutes}" ${Number(selectedValue) === minutes ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
+}
+
+function renderEditActivities(selectedIds = []) {
+  const container = $("#edit-activity-list");
+  if (!container) return;
+  const selected = new Set(selectedIds);
+  const activities = loadActivities();
+  container.innerHTML = activities.map(activity => `
+    <label class="activity-card">
+      <input type="checkbox" name="edit-activity" value="${escapeHtml(activity.id)}" ${selected.has(activity.id) ? "checked" : ""}>
+      <span>${escapeHtml(activity.label)}</span>
+      ${activity.hint ? `<small>${escapeHtml(activity.hint)}</small>` : ""}
+    </label>
+  `).join("") || '<div class="empty-state">生産活動項目がありません。</div>';
+}
+
+function startReportEdit(id) {
+  const report = loadReports().find(item => item.id === id);
+  if (!report) return;
+  $("#report-edit-panel")?.classList.remove("hidden");
+  $("#edit-report-id").value = report.id;
+  $("#edit-report-date").value = report.date;
+  $("#edit-report-name").value = report.name;
+  fillMinutesSelect($("#edit-report-minutes"), report.minutes);
+  $("#edit-report-progress").value = report.progress;
+  renderEditActivities(report.activityIds);
+  setMessage("#edit-report-message", "", "ok");
+  $("#report-edit-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function cancelReportEdit() {
+  $("#report-edit-form")?.reset();
+  if ($("#edit-report-id")) $("#edit-report-id").value = "";
+  $("#report-edit-panel")?.classList.add("hidden");
+  renderEditActivities([]);
+  setMessage("#edit-report-message", "", "ok");
+}
+
+function collectEditReport() {
+  const activityIds = $$('[name="edit-activity"]:checked').map(input => input.value);
+  const activityMap = new Map(loadActivities().map(activity => [activity.id, activity]));
+  const activityLabels = {};
+  activityIds.forEach(activityId => {
+    activityLabels[activityId] = activityMap.get(activityId)?.label || "";
+  });
+  return normalizeReport({
+    id: $("#edit-report-id")?.value || "",
+    date: $("#edit-report-date")?.value || "",
+    name: $("#edit-report-name")?.value.trim() || "",
+    activityIds,
+    activityLabels,
+    minutes: Number($("#edit-report-minutes")?.value || 0),
+    progress: $("#edit-report-progress")?.value.trim() || ""
+  });
+}
+
+function saveReportEdit(event) {
+  event.preventDefault();
+  const id = $("#edit-report-id")?.value || "";
+  const report = collectEditReport();
+  const error = validateReport(report);
+  if (error) {
+    setMessage("#edit-report-message", error, "error");
+    return;
+  }
+  if (!updateReport(id, report)) {
+    setMessage("#edit-report-message", "編集対象の報告が見つかりません。", "error");
+    return;
+  }
+  cancelReportEdit();
+  renderAdminAll();
 }
 
 function exportReportsCsv() {
@@ -609,9 +810,70 @@ function exportReportsCsv() {
   downloadText(`production_reports_${todayKey()}.csv`, csv, "text/csv;charset=utf-8");
 }
 
+function exportBackup() {
+  downloadJson(`production_activity_backup_${todayKey()}.json`, backupPayload());
+}
+
+function exportHistory() {
+  downloadJson(`production_activity_history_${todayKey()}.json`, {
+    exportedAt: new Date().toISOString(),
+    history: loadHistory()
+  });
+}
+
+function restoreBackup(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(String(reader.result || "{}"));
+      const reports = Array.isArray(parsed.reports) ? parsed.reports : [];
+      const activities = Array.isArray(parsed.activities) ? parsed.activities : defaultActivities();
+      const history = Array.isArray(parsed.history) ? parsed.history : [];
+      if (!confirm("現在の報告・項目・履歴をバックアップ内容で置き換えます。よろしいですか？")) return;
+      const before = {
+        label: "復元前データ",
+        reports: loadReports(),
+        activities: loadActivities()
+      };
+      saveReports(reports);
+      saveActivities(activities);
+      saveHistory(history);
+      addHistory("復元", "バックアップ", before, {
+        label: file.name,
+        reports: loadReports().length,
+        activities: loadActivities().length
+      });
+      cancelReportEdit();
+      renderAdminAll();
+    } catch {
+      alert("バックアップファイルを読み込めませんでした。JSON形式のバックアップを選択してください。");
+    } finally {
+      if ($("#restore-backup")) $("#restore-backup").value = "";
+    }
+  };
+  reader.readAsText(file, "utf-8");
+}
+
+function renderHistory() {
+  const container = $("#history-list");
+  if (!container) return;
+  const history = loadHistory().slice(0, 100);
+  container.innerHTML = history.map(item => `
+    <div class="history-item">
+      <strong>${escapeHtml(item.action)} / ${escapeHtml(item.target)}</strong>
+      <span>${escapeHtml(item.label || "-")}</span>
+      <span class="history-meta">${escapeHtml(item.at ? `${formatDate(item.at.slice(0, 10))} ${item.at.slice(11, 16)}` : "-")}</span>
+    </div>
+  `).join("") || '<div class="empty-state">操作履歴はまだありません。</div>';
+}
+
 function deleteAllReports() {
   if (!confirm("すべての報告を削除します。よろしいですか？")) return;
+  const before = loadReports();
   saveReports([]);
+  addHistory("全削除", "報告", { label: `${before.length}件`, reports: before }, null);
+  cancelReportEdit();
   renderAdminAll();
 }
 
@@ -655,17 +917,23 @@ function saveActivityEditor() {
     alert("項目を1つ以上入力してください。");
     return;
   }
+  const before = loadActivities();
   saveActivities(activities);
+  addHistory("編集", "生産活動項目", { label: "変更前", activities: before }, { label: "変更後", activities: loadActivities() });
   renderActivityEditor();
   renderAdminSummary();
+  renderHistory();
   alert("項目を保存しました。");
 }
 
 function resetActivities() {
   if (!confirm("生産活動項目を初期状態に戻します。よろしいですか？")) return;
+  const before = loadActivities();
   saveActivities(defaultActivities());
+  addHistory("初期化", "生産活動項目", { label: "初期化前", activities: before }, { label: "初期項目", activities: loadActivities() });
   renderActivityEditor();
   renderAdminSummary();
+  renderHistory();
 }
 
 document.addEventListener("DOMContentLoaded", () => {

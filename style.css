@@ -268,6 +268,14 @@ textarea:focus {
   font-size: 13px;
 }
 
+.file-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  font-size: 15px;
+}
+
 .hidden {
   display: none !important;
 }
@@ -466,6 +474,72 @@ tr:last-child td {
   white-space: pre-wrap;
 }
 
+.report-tools {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(150px, 180px) minmax(150px, 180px) auto;
+  gap: 10px;
+  align-items: end;
+  margin: 0 0 14px;
+}
+
+.edit-panel {
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--accent);
+  border-radius: 8px;
+  margin: 0 0 14px;
+  padding: 14px;
+  background: var(--panel);
+}
+
+.compact-head {
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+}
+
+.compact-head h3 {
+  margin: 0;
+  color: var(--primary-dark);
+  font-size: 18px;
+}
+
+.history-panel {
+  border-top: 1px solid var(--line);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+
+.history-panel summary {
+  cursor: pointer;
+  color: var(--primary-dark);
+  font-weight: 900;
+}
+
+.history-list {
+  display: grid;
+  gap: 8px;
+  max-height: 300px;
+  overflow: auto;
+  margin-top: 10px;
+}
+
+.history-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+.history-item strong,
+.history-item span {
+  display: block;
+}
+
+.history-meta {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .activity-editor {
   display: grid;
   gap: 10px;
@@ -516,6 +590,7 @@ tr:last-child td {
 
   .form-grid,
   .activity-grid,
+  .report-tools,
   .period-row,
   .kpi-grid,
   .chart-grid,
