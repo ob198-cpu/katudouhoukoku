@@ -524,7 +524,7 @@ function initAdminPage() {
     unlockAdmin();
   });
 
-  $("[data-admin-view]").forEach(button => {
+  $$("[data-admin-view]").forEach(button => {
     button.addEventListener("click", () => showAdminView(button.dataset.adminView));
   });
 
