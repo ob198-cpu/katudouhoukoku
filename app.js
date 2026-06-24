@@ -448,6 +448,10 @@ function initAdminPage() {
     cancelReportEdit();
     renderAdminAll();
   });
+  $("#history-list")?.addEventListener("click", event => {
+    const restoreButton = event.target.closest("[data-restore-history]");
+    if (restoreButton) restoreHistoryEntry(restoreButton.dataset.restoreHistory);
+  });
   $("#add-activity")?.addEventListener("click", addActivityEditorRow);
   $("#save-activities")?.addEventListener("click", saveActivityEditor);
   $("#reset-activities")?.addEventListener("click", resetActivities);
@@ -864,8 +868,81 @@ function renderHistory() {
       <strong>${escapeHtml(item.action)} / ${escapeHtml(item.target)}</strong>
       <span>${escapeHtml(item.label || "-")}</span>
       <span class="history-meta">${escapeHtml(item.at ? `${formatDate(item.at.slice(0, 10))} ${item.at.slice(11, 16)}` : "-")}</span>
+      ${historyRestoreButton(item)}
     </div>
   `).join("") || '<div class="empty-state">操作履歴はまだありません。</div>';
+}
+
+function historyRestoreButton(item) {
+  const canRestoreSingleReport = item.target === "報告" && item.before?.id;
+  const canRestoreReportSet = item.target === "報告" && Array.isArray(item.before?.reports);
+  const canUndoBackupRestore = item.target === "バックアップ" && Array.isArray(item.before?.reports);
+  if (!canRestoreSingleReport && !canRestoreReportSet && !canUndoBackupRestore) return "";
+  const label = canUndoBackupRestore
+    ? "復元前に戻す"
+    : canRestoreReportSet
+      ? "この履歴から報告を復元"
+      : item.action === "削除"
+        ? "削除前に復元"
+        : "編集前に戻す";
+  return `<div class="history-actions"><button type="button" class="secondary-button small" data-restore-history="${escapeHtml(item.id)}">${escapeHtml(label)}</button></div>`;
+}
+
+function restoreHistoryEntry(historyId) {
+  const entry = loadHistory().find(item => item.id === historyId);
+  if (!entry) return;
+
+  if (entry.target === "報告" && entry.before?.id) {
+    if (!confirm("この履歴の内容で報告データを復元します。よろしいですか？")) return;
+    const reports = loadReports();
+    const index = reports.findIndex(report => report.id === entry.before.id);
+    const current = index >= 0 ? reports[index] : null;
+    const restored = normalizeReport(entry.before);
+    if (index >= 0) {
+      reports[index] = restored;
+    } else {
+      reports.push(restored);
+    }
+    saveReports(reports);
+    addHistory("履歴復元", "報告", current, restored);
+    cancelReportEdit();
+    renderAdminAll();
+    return;
+  }
+
+  if (entry.target === "報告" && Array.isArray(entry.before?.reports)) {
+    if (!confirm("この履歴に残っている報告データ一式を復元します。現在の報告データは置き換わります。よろしいですか？")) return;
+    const current = { label: "履歴復元前", reports: loadReports() };
+    saveReports(entry.before.reports.map(normalizeReport));
+    addHistory("履歴復元", "報告", current, {
+      label: `${entry.label || "履歴"}から復元`,
+      reports: loadReports().length
+    });
+    cancelReportEdit();
+    renderAdminAll();
+    return;
+  }
+
+  if (entry.target === "バックアップ" && Array.isArray(entry.before?.reports)) {
+    if (!confirm("バックアップ復元前の状態に戻します。現在の報告・項目データは置き換わります。よろしいですか？")) return;
+    const current = {
+      label: "履歴復元前",
+      reports: loadReports(),
+      activities: loadActivities()
+    };
+    saveReports(entry.before.reports.map(normalizeReport));
+    if (Array.isArray(entry.before.activities)) saveActivities(entry.before.activities);
+    addHistory("履歴復元", "バックアップ", current, {
+      label: "バックアップ復元前に戻しました",
+      reports: loadReports().length,
+      activities: loadActivities().length
+    });
+    cancelReportEdit();
+    renderAdminAll();
+    return;
+  }
+
+  alert("この履歴から復元できるデータがありません。");
 }
 
 function deleteAllReports() {
