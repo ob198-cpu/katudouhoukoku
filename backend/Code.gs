@@ -41,7 +41,6 @@ function handleAction_(action, payload, password) {
   if (action === 'deleteReport') return deleteReport_(payload.id);
   if (action === 'deleteAllReports') return deleteAllReports_();
   if (action === 'saveActivities') return saveActivities_(payload.activities || [], payload.actionLabel || '編集');
-  if (action === 'restoreBackup') return restoreBackup_(payload);
   if (action === 'restoreHistoryEntry') return restoreHistoryEntry_(payload.historyId);
   if (action === 'changeAdminPassword') return changeAdminPassword_(payload.newPassword || '');
   throw new Error('未対応の操作です: ' + action);
@@ -91,15 +90,6 @@ function saveActivities_(activities, actionLabel) {
   return snapshot_();
 }
 
-function restoreBackup_(payload) {
-  const before = { label: '復元前データ', reports: readReports_(), activities: readActivities_(), history: readHistory_() };
-  writeJsonRows_(SHEETS.reports, (payload.reports || []).map(normalizeReport_));
-  writeJsonRows_(SHEETS.activities, normalizeActivities_(payload.activities || defaultActivities_()));
-  writeJsonRows_(SHEETS.history, Array.isArray(payload.history) ? payload.history : []);
-  addHistory_('復元', 'バックアップ', before, { label: payload.label || 'バックアップ', reports: readReports_().length, activities: readActivities_().length });
-  return snapshot_();
-}
-
 function restoreHistoryEntry_(historyId) {
   const entry = readHistory_().find(row => row.id === historyId);
   if (!entry) throw new Error('履歴が見つかりません。');
@@ -114,13 +104,6 @@ function restoreHistoryEntry_(historyId) {
     const current = { label: '履歴復元前', reports: readReports_() };
     writeJsonRows_(SHEETS.reports, entry.before.reports.map(normalizeReport_));
     addHistory_('履歴復元', '報告', current, { label: (entry.label || '履歴') + 'から復元', reports: readReports_().length });
-    return snapshot_();
-  }
-  if (entry.target === 'バックアップ' && entry.before && Array.isArray(entry.before.reports)) {
-    const current = { label: '履歴復元前', reports: readReports_(), activities: readActivities_() };
-    writeJsonRows_(SHEETS.reports, entry.before.reports.map(normalizeReport_));
-    if (Array.isArray(entry.before.activities)) writeJsonRows_(SHEETS.activities, normalizeActivities_(entry.before.activities));
-    addHistory_('履歴復元', 'バックアップ', current, { label: 'バックアップ復元前に戻しました', reports: readReports_().length, activities: readActivities_().length });
     return snapshot_();
   }
   throw new Error('この履歴から復元できるデータがありません。');

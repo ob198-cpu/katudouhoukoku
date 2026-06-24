@@ -362,35 +362,6 @@ function setMessage(selector, text, type = "ok") {
   target.className = `form-message ${type}`;
 }
 
-function csvCell(value) {
-  const text = String(value ?? "");
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
-function downloadText(filename, text, type = "text/plain;charset=utf-8") {
-  const blob = new Blob(["\uFEFF" + text], { type });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-function downloadJson(filename, payload) {
-  downloadText(filename, JSON.stringify(payload, null, 2), "application/json;charset=utf-8");
-}
-
-function backupPayload() {
-  return {
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    reports: loadReports(),
-    activities: loadActivities(),
-    history: loadHistory()
-  };
-}
-
 function currentAdminPin() {
   const savedPin = localStorage.getItem(ADMIN_PIN_KEY);
   if (savedPin === null || savedPin === LEGACY_DEFAULT_ADMIN_PIN) return DEFAULT_ADMIN_PIN;
@@ -534,10 +505,6 @@ function initAdminPage() {
   $("#period-mode")?.addEventListener("change", renderAdminSummary);
   $("#period-date")?.addEventListener("change", renderAdminSummary);
   $("#staff-select")?.addEventListener("change", renderSelectedStaffChart);
-  $("#export-csv")?.addEventListener("click", exportReportsCsv);
-  $("#export-backup")?.addEventListener("click", exportBackup);
-  $("#export-history")?.addEventListener("click", exportHistory);
-  $("#restore-backup")?.addEventListener("change", event => restoreBackup(event.target.files?.[0]));
   $("#report-search")?.addEventListener("input", renderReportTable);
   $("#report-filter-start")?.addEventListener("change", renderReportTable);
   $("#report-filter-end")?.addEventListener("change", renderReportTable);
@@ -933,71 +900,6 @@ async function saveReportEdit(event) {
   }
 }
 
-function exportReportsCsv() {
-  const headers = ["日付", "氏名", "生産活動内容", "所要時間(分)", "所要時間", "進捗状況"];
-  const rows = loadReports()
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .map(report => [
-      report.date,
-      report.name,
-      reportActivityLabels(report).join(" / "),
-      report.minutes,
-      minutesText(report.minutes),
-      report.progress
-    ]);
-  const csv = [headers, ...rows].map(row => row.map(csvCell).join(",")).join("\r\n");
-  downloadText(`production_reports_${todayKey()}.csv`, csv, "text/csv;charset=utf-8");
-}
-
-function exportBackup() {
-  downloadJson(`production_activity_backup_${todayKey()}.json`, backupPayload());
-}
-
-function exportHistory() {
-  downloadJson(`production_activity_history_${todayKey()}.json`, {
-    exportedAt: new Date().toISOString(),
-    history: loadHistory()
-  });
-}
-
-function restoreBackup(file) {
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async () => {
-    try {
-      const parsed = JSON.parse(String(reader.result || "{}"));
-      const reports = Array.isArray(parsed.reports) ? parsed.reports : [];
-      const activities = Array.isArray(parsed.activities) ? parsed.activities : defaultActivities();
-      const history = Array.isArray(parsed.history) ? parsed.history : [];
-      if (!confirm("現在の報告・項目・履歴をバックアップ内容で置き換えます。よろしいですか？")) return;
-      const before = {
-        label: "復元前データ",
-        reports: loadReports(),
-        activities: loadActivities()
-      };
-      if (cloudEnabled()) {
-        await cloudAdminAction("restoreBackup", { reports, activities, history, label: file.name });
-      } else {
-        saveReports(reports);
-        saveActivities(activities);
-        saveHistory(history);
-        addHistory("復元", "バックアップ", before, {
-          label: file.name,
-          reports: loadReports().length,
-          activities: loadActivities().length
-        });
-      }
-      cancelReportEdit();
-      renderAdminAll();
-    } catch {
-      alert("バックアップファイルを読み込めませんでした。JSON形式のバックアップを選択してください。");
-    } finally {
-      if ($("#restore-backup")) $("#restore-backup").value = "";
-    }
-  };
-  reader.readAsText(file, "utf-8");
-}
-
 function renderHistory() {
   const container = $("#history-list");
   if (!container) return;
@@ -1015,11 +917,8 @@ function renderHistory() {
 function historyRestoreButton(item) {
   const canRestoreSingleReport = item.target === "報告" && item.before?.id;
   const canRestoreReportSet = item.target === "報告" && Array.isArray(item.before?.reports);
-  const canUndoBackupRestore = item.target === "バックアップ" && Array.isArray(item.before?.reports);
-  if (!canRestoreSingleReport && !canRestoreReportSet && !canUndoBackupRestore) return "";
-  const label = canUndoBackupRestore
-    ? "復元前に戻す"
-    : canRestoreReportSet
+  if (!canRestoreSingleReport && !canRestoreReportSet) return "";
+  const label = canRestoreReportSet
       ? "この履歴から報告を復元"
       : item.action === "削除"
         ? "削除前に復元"
@@ -1066,25 +965,6 @@ async function restoreHistoryEntry(historyId) {
     addHistory("履歴復元", "報告", current, {
       label: `${entry.label || "履歴"}から復元`,
       reports: loadReports().length
-    });
-    cancelReportEdit();
-    renderAdminAll();
-    return;
-  }
-
-  if (entry.target === "バックアップ" && Array.isArray(entry.before?.reports)) {
-    if (!confirm("バックアップ復元前の状態に戻します。現在の報告・項目データは置き換わります。よろしいですか？")) return;
-    const current = {
-      label: "履歴復元前",
-      reports: loadReports(),
-      activities: loadActivities()
-    };
-    saveReports(entry.before.reports.map(normalizeReport));
-    if (Array.isArray(entry.before.activities)) saveActivities(entry.before.activities);
-    addHistory("履歴復元", "バックアップ", current, {
-      label: "バックアップ復元前に戻しました",
-      reports: loadReports().length,
-      activities: loadActivities().length
     });
     cancelReportEdit();
     renderAdminAll();
