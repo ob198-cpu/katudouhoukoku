@@ -66,6 +66,32 @@ button {
   text-transform: uppercase;
 }
 
+
+.storage-status {
+  position: sticky;
+  top: 76px;
+  z-index: 9;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 28px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.storage-status.ok {
+  color: #145342;
+  background: #e9f8f2;
+}
+
+.storage-status.warn {
+  color: #7a4b00;
+  background: #fff4db;
+}
+
+.storage-status.error {
+  color: #8f1d13;
+  background: #fdecea;
+}
+
 .admin-link {
   display: inline-flex;
   align-items: center;

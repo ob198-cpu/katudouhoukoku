@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>生産活動報告 管理画面</title>
-  <link rel="stylesheet" href="style.css?v=20260625-data-restore">
+  <link rel="stylesheet" href="style.css?v=20260625-cloud-backend">
 </head>
 <body data-page="admin">
   <header class="site-header">
@@ -15,12 +15,14 @@
     <a class="admin-link" href="index.html">フォームへ戻る</a>
   </header>
 
+  <div id="storage-status" class="storage-status warn">保存先を確認中...</div>
+
   <main class="admin-shell">
     <section id="admin-lock" class="login-panel">
       <div class="panel-head">
         <div>
           <h2>管理者ログイン</h2>
-          <p>管理者パスワードを入力してください。　※現在テスト版につき未記入でログインできます。</p>
+          <p>管理者パスワードを入力してください。クラウド保存設定後はサーバー側で認証します。</p>
         </div>
       </div>
       <form id="admin-login-form" class="login-form" autocomplete="off">
@@ -203,6 +205,7 @@
     </section>
   </main>
 
-  <script src="app.js?v=20260625-data-restore"></script>
+  <script src="config.js?v=20260625-cloud-backend"></script>
+  <script src="app.js?v=20260625-cloud-backend"></script>
 </body>
 </html>

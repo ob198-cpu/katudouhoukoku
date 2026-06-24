@@ -2,9 +2,11 @@ const REPORTS_KEY = "production_activity_reports_v2";
 const ACTIVITIES_KEY = "production_activity_items_v2";
 const ADMIN_PIN_KEY = "production_activity_admin_pin_v1";
 const ADMIN_SESSION_KEY = "production_activity_admin_unlocked";
+const ADMIN_PASSWORD_SESSION_KEY = "production_activity_admin_password";
 const HISTORY_KEY = "production_activity_history_v1";
 const DEFAULT_ADMIN_PIN = "";
 const LEGACY_DEFAULT_ADMIN_PIN = "0000";
+const CLOUD_API_URL = window.PRODUCTION_REPORT_API_URL || "";
 
 const DEFAULT_ACTIVITIES = [
   { id: "transcription", label: "文字起こし", hint: "納品したかどうか", active: true },
@@ -123,6 +125,73 @@ function parseJson(key, fallback) {
   }
 }
 
+function cloudEnabled() {
+  return /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(String(CLOUD_API_URL || "").trim());
+}
+
+function adminPassword() {
+  return sessionStorage.getItem(ADMIN_PASSWORD_SESSION_KEY) || "";
+}
+
+function setStorageStatus(text, type = "warn") {
+  const target = $("#storage-status");
+  if (!target) return;
+  target.textContent = text;
+  target.className = "storage-status " + type;
+}
+
+async function cloudRequest(action, payload = {}, password = "") {
+  if (!cloudEnabled()) throw new Error("クラウド保存URLが未設定です。");
+  const response = await fetch(String(CLOUD_API_URL).trim(), {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action, password, payload })
+  });
+  const result = await response.json();
+  if (!response.ok || !result.ok) throw new Error(result.error || "クラウド保存に失敗しました。");
+  return result.data || {};
+}
+
+function applySnapshot(snapshot = {}) {
+  if (Array.isArray(snapshot.activities)) saveActivities(snapshot.activities);
+  if (Array.isArray(snapshot.reports)) saveReports(snapshot.reports);
+  if (Array.isArray(snapshot.history)) saveHistory(snapshot.history);
+}
+
+async function refreshCloudPublic() {
+  if (!cloudEnabled()) {
+    setStorageStatus("ローカル保存中: この端末のブラウザ内だけに保存されます。クラウド保存URLを設定してください。", "warn");
+    return false;
+  }
+  try {
+    const data = await cloudRequest("publicConfig");
+    applySnapshot(data);
+    setStorageStatus("クラウド保存中: 送信データは共有スプレッドシートへ保存されます。", "ok");
+    return true;
+  } catch (error) {
+    setStorageStatus("クラウド接続エラー: " + error.message, "error");
+    return false;
+  }
+}
+
+async function refreshCloudAdmin(password = adminPassword()) {
+  if (!cloudEnabled()) {
+    setStorageStatus("ローカル保存中: 管理者データもこの端末のブラウザ内だけです。", "warn");
+    return false;
+  }
+  const data = await cloudRequest("adminSnapshot", {}, password);
+  applySnapshot(data);
+  setStorageStatus("クラウド保存中: 管理者操作はサーバー側パスワードで保護されています。", "ok");
+  return true;
+}
+
+async function cloudAdminAction(action, payload = {}) {
+  const data = await cloudRequest(action, payload, adminPassword());
+  applySnapshot(data);
+  setStorageStatus("クラウド保存済み", "ok");
+  return data;
+}
+
 function normalizeActivity(activity, index = 0) {
   return {
     id: activity?.id || uid("activity"),
@@ -224,15 +293,29 @@ function addHistory(action, target, before, after) {
   saveHistory([entry, ...loadHistory()]);
 }
 
-function addReport(report) {
-  const reports = loadReports();
+async function addReport(report) {
   const normalized = normalizeReport(report);
+  if (cloudEnabled()) {
+    const data = await cloudRequest("submitReport", { report: normalized });
+    const saved = normalizeReport(data.report || normalized);
+    const reports = loadReports().filter(item => item.id !== saved.id);
+    reports.push(saved);
+    saveReports(reports);
+    if (Array.isArray(data.activities)) saveActivities(data.activities);
+    return saved;
+  }
+  const reports = loadReports();
   reports.push(normalized);
   saveReports(reports);
   addHistory("登録", "報告", null, normalized);
+  return normalized;
 }
 
-function updateReport(id, nextReport) {
+async function updateReport(id, nextReport) {
+  if (cloudEnabled()) {
+    await cloudAdminAction("updateReport", { id, report: nextReport });
+    return true;
+  }
   const reports = loadReports();
   const index = reports.findIndex(report => report.id === id);
   if (index < 0) return false;
@@ -250,12 +333,17 @@ function updateReport(id, nextReport) {
   return true;
 }
 
-function deleteReport(id) {
+async function deleteReport(id) {
+  if (cloudEnabled()) {
+    await cloudAdminAction("deleteReport", { id });
+    return true;
+  }
   const reports = loadReports();
   const target = reports.find(report => report.id === id);
-  if (!target) return;
+  if (!target) return false;
   saveReports(reports.filter(report => report.id !== id));
   addHistory("削除", "報告", target, null);
+  return true;
 }
 
 function activityLabel(report, activityId) {
@@ -315,12 +403,13 @@ function initFormPage() {
   if (dateInput) dateInput.value = todayKey();
   if (minutesSelect) {
     minutesSelect.innerHTML = '<option value="">選択してください</option>' +
-      TIME_OPTIONS.map(([label, minutes]) => `<option value="${minutes}">${escapeHtml(label)}</option>`).join("");
+      TIME_OPTIONS.map(([label, minutes]) => '<option value="' + minutes + '">' + escapeHtml(label) + '</option>').join("");
   }
   renderFormActivities();
+  refreshCloudPublic().then(() => renderFormActivities());
 
   $("#clear-form")?.addEventListener("click", clearForm);
-  $("#report-form")?.addEventListener("submit", event => {
+  $("#report-form")?.addEventListener("submit", async event => {
     event.preventDefault();
     const report = collectFormReport();
     const error = validateReport(report);
@@ -328,9 +417,17 @@ function initFormPage() {
       setMessage("#form-message", error, "error");
       return;
     }
-    addReport(report);
-    clearForm();
-    setMessage("#form-message", "送信しました。今日もお疲れさまでした。", "ok");
+    const submitButton = event.submitter || $("#report-form button[type='submit']");
+    if (submitButton) submitButton.disabled = true;
+    try {
+      await addReport(report);
+      clearForm();
+      setMessage("#form-message", cloudEnabled() ? "送信しました。共有データに保存済みです。" : "送信しました。この端末内に保存しました。", "ok");
+    } catch (error) {
+      setMessage("#form-message", "送信できませんでした: " + error.message, "error");
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
   });
 }
 
@@ -398,13 +495,26 @@ function clearForm() {
 }
 
 function initAdminPage() {
-  if (sessionStorage.getItem(ADMIN_SESSION_KEY) === "1") {
+  if (sessionStorage.getItem(ADMIN_SESSION_KEY) === "1" && (!cloudEnabled() || adminPassword())) {
     unlockAdmin();
+  } else {
+    refreshCloudPublic();
   }
 
-  $("#admin-login-form")?.addEventListener("submit", event => {
+  $("#admin-login-form")?.addEventListener("submit", async event => {
     event.preventDefault();
     const pin = $("#admin-pin")?.value || "";
+    if (cloudEnabled()) {
+      try {
+        await refreshCloudAdmin(pin);
+        sessionStorage.setItem(ADMIN_PASSWORD_SESSION_KEY, pin);
+        sessionStorage.setItem(ADMIN_SESSION_KEY, "1");
+        unlockAdmin();
+      } catch (error) {
+        setMessage("#admin-login-message", "ログインできません: " + error.message, "error");
+      }
+      return;
+    }
     const savedPin = currentAdminPin();
     if (pin !== savedPin) {
       setMessage("#admin-login-message", "パスワードが違います。", "error");
@@ -414,7 +524,7 @@ function initAdminPage() {
     unlockAdmin();
   });
 
-  $$("[data-admin-view]").forEach(button => {
+  $("[data-admin-view]").forEach(button => {
     button.addEventListener("click", () => showAdminView(button.dataset.adminView));
   });
 
@@ -435,7 +545,7 @@ function initAdminPage() {
   $("#cancel-report-edit")?.addEventListener("click", cancelReportEdit);
   $("#report-edit-form")?.addEventListener("submit", saveReportEdit);
   $("#delete-all-reports")?.addEventListener("click", deleteAllReports);
-  $("#report-table")?.addEventListener("click", event => {
+  $("#report-table")?.addEventListener("click", async event => {
     const editButton = event.target.closest("[data-edit-report]");
     if (editButton) {
       startReportEdit(editButton.dataset.editReport);
@@ -444,9 +554,16 @@ function initAdminPage() {
     const deleteButton = event.target.closest("[data-delete-report]");
     if (!deleteButton) return;
     if (!confirm("この報告を削除します。履歴には削除前データが残ります。よろしいですか？")) return;
-    deleteReport(deleteButton.dataset.deleteReport);
-    cancelReportEdit();
-    renderAdminAll();
+    deleteButton.disabled = true;
+    try {
+      await deleteReport(deleteButton.dataset.deleteReport);
+      cancelReportEdit();
+      renderAdminAll();
+    } catch (error) {
+      alert("削除できませんでした: " + error.message);
+    } finally {
+      deleteButton.disabled = false;
+    }
   });
   $("#history-list")?.addEventListener("click", event => {
     const restoreButton = event.target.closest("[data-restore-history]");
@@ -459,16 +576,25 @@ function initAdminPage() {
     const button = event.target.closest("[data-remove-activity]");
     if (button) button.closest(".activity-editor-row")?.remove();
   });
-  $("#pin-form")?.addEventListener("submit", event => {
+  $("#pin-form")?.addEventListener("submit", async event => {
     event.preventDefault();
     const pin = $("#new-pin")?.value.trim() || "";
     if (pin.length < 4) {
       setMessage("#pin-message", "パスワードは4文字以上で入力してください。", "error");
       return;
     }
-    localStorage.setItem(ADMIN_PIN_KEY, pin);
-    $("#new-pin").value = "";
-    setMessage("#pin-message", "パスワードを変更しました。", "ok");
+    try {
+      if (cloudEnabled()) {
+        await cloudAdminAction("changeAdminPassword", { newPassword: pin });
+        sessionStorage.setItem(ADMIN_PASSWORD_SESSION_KEY, pin);
+      } else {
+        localStorage.setItem(ADMIN_PIN_KEY, pin);
+      }
+      $("#new-pin").value = "";
+      setMessage("#pin-message", "パスワードを変更しました。", "ok");
+    } catch (error) {
+      setMessage("#pin-message", "変更できませんでした: " + error.message, "error");
+    }
   });
 }
 
@@ -476,6 +602,11 @@ function unlockAdmin() {
   $("#admin-lock")?.classList.add("hidden");
   $("#admin-console")?.classList.remove("hidden");
   renderAdminAll();
+  if (cloudEnabled()) {
+    refreshCloudAdmin().then(renderAdminAll).catch(error => {
+      setStorageStatus("クラウド同期エラー: " + error.message, "error");
+    });
+  }
 }
 
 function showAdminView(name) {
@@ -781,7 +912,7 @@ function collectEditReport() {
   });
 }
 
-function saveReportEdit(event) {
+async function saveReportEdit(event) {
   event.preventDefault();
   const id = $("#edit-report-id")?.value || "";
   const report = collectEditReport();
@@ -790,12 +921,16 @@ function saveReportEdit(event) {
     setMessage("#edit-report-message", error, "error");
     return;
   }
-  if (!updateReport(id, report)) {
-    setMessage("#edit-report-message", "編集対象の報告が見つかりません。", "error");
-    return;
+  try {
+    if (!await updateReport(id, report)) {
+      setMessage("#edit-report-message", "編集対象の報告が見つかりません。", "error");
+      return;
+    }
+    cancelReportEdit();
+    renderAdminAll();
+  } catch (error) {
+    setMessage("#edit-report-message", "保存できませんでした: " + error.message, "error");
   }
-  cancelReportEdit();
-  renderAdminAll();
 }
 
 function exportReportsCsv() {
@@ -828,7 +963,7 @@ function exportHistory() {
 function restoreBackup(file) {
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try {
       const parsed = JSON.parse(String(reader.result || "{}"));
       const reports = Array.isArray(parsed.reports) ? parsed.reports : [];
@@ -840,14 +975,18 @@ function restoreBackup(file) {
         reports: loadReports(),
         activities: loadActivities()
       };
-      saveReports(reports);
-      saveActivities(activities);
-      saveHistory(history);
-      addHistory("復元", "バックアップ", before, {
-        label: file.name,
-        reports: loadReports().length,
-        activities: loadActivities().length
-      });
+      if (cloudEnabled()) {
+        await cloudAdminAction("restoreBackup", { reports, activities, history, label: file.name });
+      } else {
+        saveReports(reports);
+        saveActivities(activities);
+        saveHistory(history);
+        addHistory("復元", "バックアップ", before, {
+          label: file.name,
+          reports: loadReports().length,
+          activities: loadActivities().length
+        });
+      }
       cancelReportEdit();
       renderAdminAll();
     } catch {
@@ -888,7 +1027,17 @@ function historyRestoreButton(item) {
   return `<div class="history-actions"><button type="button" class="secondary-button small" data-restore-history="${escapeHtml(item.id)}">${escapeHtml(label)}</button></div>`;
 }
 
-function restoreHistoryEntry(historyId) {
+async function restoreHistoryEntry(historyId) {
+  if (cloudEnabled()) {
+    try {
+      await cloudAdminAction("restoreHistoryEntry", { historyId });
+      cancelReportEdit();
+      renderAdminAll();
+    } catch (error) {
+      alert("復元できませんでした: " + error.message);
+    }
+    return;
+  }
   const entry = loadHistory().find(item => item.id === historyId);
   if (!entry) return;
 
@@ -945,13 +1094,21 @@ function restoreHistoryEntry(historyId) {
   alert("この履歴から復元できるデータがありません。");
 }
 
-function deleteAllReports() {
+async function deleteAllReports() {
   if (!confirm("すべての報告を削除します。よろしいですか？")) return;
-  const before = loadReports();
-  saveReports([]);
-  addHistory("全削除", "報告", { label: `${before.length}件`, reports: before }, null);
-  cancelReportEdit();
-  renderAdminAll();
+  try {
+    if (cloudEnabled()) {
+      await cloudAdminAction("deleteAllReports");
+    } else {
+      const before = loadReports();
+      saveReports([]);
+      addHistory("全削除", "報告", { label: before.length + "件", reports: before }, null);
+    }
+    cancelReportEdit();
+    renderAdminAll();
+  } catch (error) {
+    alert("全削除できませんでした: " + error.message);
+  }
 }
 
 function activityEditorRow(activity = {}) {
@@ -988,29 +1145,45 @@ function collectActivityEditor() {
     .filter(activity => activity.label);
 }
 
-function saveActivityEditor() {
+async function saveActivityEditor() {
   const activities = collectActivityEditor();
   if (!activities.length) {
     alert("項目を1つ以上入力してください。");
     return;
   }
-  const before = loadActivities();
-  saveActivities(activities);
-  addHistory("編集", "生産活動項目", { label: "変更前", activities: before }, { label: "変更後", activities: loadActivities() });
-  renderActivityEditor();
-  renderAdminSummary();
-  renderHistory();
-  alert("項目を保存しました。");
+  try {
+    if (cloudEnabled()) {
+      await cloudAdminAction("saveActivities", { activities });
+    } else {
+      const before = loadActivities();
+      saveActivities(activities);
+      addHistory("編集", "生産活動項目", { label: "変更前", activities: before }, { label: "変更後", activities: loadActivities() });
+    }
+    renderActivityEditor();
+    renderAdminSummary();
+    renderHistory();
+    alert("項目を保存しました。");
+  } catch (error) {
+    alert("項目を保存できませんでした: " + error.message);
+  }
 }
 
-function resetActivities() {
+async function resetActivities() {
   if (!confirm("生産活動項目を初期状態に戻します。よろしいですか？")) return;
-  const before = loadActivities();
-  saveActivities(defaultActivities());
-  addHistory("初期化", "生産活動項目", { label: "初期化前", activities: before }, { label: "初期項目", activities: loadActivities() });
-  renderActivityEditor();
-  renderAdminSummary();
-  renderHistory();
+  try {
+    if (cloudEnabled()) {
+      await cloudAdminAction("saveActivities", { activities: defaultActivities(), actionLabel: "初期化" });
+    } else {
+      const before = loadActivities();
+      saveActivities(defaultActivities());
+      addHistory("初期化", "生産活動項目", { label: "初期化前", activities: before }, { label: "初期項目", activities: loadActivities() });
+    }
+    renderActivityEditor();
+    renderAdminSummary();
+    renderHistory();
+  } catch (error) {
+    alert("初期化できませんでした: " + error.message);
+  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
