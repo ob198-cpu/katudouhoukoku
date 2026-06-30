@@ -1,10 +1,11 @@
-﻿const SHEETS = {
+const SHEETS = {
   reports: { name: 'Reports', headers: ['id', 'json', 'updatedAt'] },
   activities: { name: 'Activities', headers: ['id', 'json', 'updatedAt'] },
   history: { name: 'History', headers: ['id', 'json', 'at'] }
 };
 const ADMIN_HASH_KEY = 'ADMIN_PASSWORD_SHA256';
 const HISTORY_LIMIT = 1000;
+const DUPLICATE_REPORT_MESSAGE = '同じ日に同じ氏名で既に報告済みです。再入力はできません。修正が必要な場合は管理者に連絡してください。';
 
 function setupInitialAdminPassword(password) {
   if (!password || String(password).length < 8) throw new Error('管理者パスワードは8文字以上で指定してください。');
@@ -48,6 +49,13 @@ function handleAction_(action, payload, password) {
 
 function submitReport_(report) {
   const normalized = normalizeReport_(report);
+  if (normalized.date !== toDateKey_(new Date())) throw new Error('日付は本日のみ送信できます。');
+  const duplicate = readReports_().find(row =>
+    row.id !== normalized.id &&
+    row.date === normalized.date &&
+    normalizedNameKey_(row.name) === normalizedNameKey_(normalized.name)
+  );
+  if (duplicate) throw new Error(DUPLICATE_REPORT_MESSAGE);
   upsertJson_(SHEETS.reports, normalized.id, normalized, normalized.updatedAt);
   addHistory_('登録', '報告', null, normalized);
   return { report: normalized, activities: readActivities_() };
@@ -182,13 +190,24 @@ function addHistory_(action, target, before, after) {
 
 function normalizeReport_(report) {
   report = report || {};
+  const activityIds = Array.isArray(report.activityIds) ? report.activityIds.map(String).filter(Boolean) : [];
+  const sourceMinutes = report.activityMinutes && typeof report.activityMinutes === 'object' ? report.activityMinutes : {};
+  const activityMinutes = {};
+  activityIds.forEach(function(activityId) {
+    const minutes = Math.max(0, Number(sourceMinutes[activityId] || 0));
+    if (minutes) activityMinutes[activityId] = minutes;
+  });
+  const totalFromActivities = Object.keys(activityMinutes).reduce(function(sum, activityId) {
+    return sum + Number(activityMinutes[activityId] || 0);
+  }, 0);
   return {
     id: report.id || 'report_' + Date.now() + '_' + Utilities.getUuid().slice(0, 8),
     date: report.date || toDateKey_(new Date()),
     name: String(report.name || '').trim(),
-    activityIds: Array.isArray(report.activityIds) ? report.activityIds.map(String).filter(Boolean) : [],
+    activityIds: activityIds,
     activityLabels: report.activityLabels && typeof report.activityLabels === 'object' ? report.activityLabels : {},
-    minutes: Math.max(0, Number(report.minutes || 0)),
+    activityMinutes: activityMinutes,
+    minutes: totalFromActivities || Math.max(0, Number(report.minutes || 0)),
     progress: String(report.progress || '').trim(),
     createdAt: report.createdAt || new Date().toISOString(),
     updatedAt: report.updatedAt || new Date().toISOString()
@@ -249,6 +268,10 @@ function sha256(value) {
 
 function clone_(value) {
   return JSON.parse(JSON.stringify(value || null));
+}
+
+function normalizedNameKey_(name) {
+  return String(name || '').replace(/\s+/g, '').toLowerCase();
 }
 
 function toDateKey_(date) {

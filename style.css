@@ -274,6 +274,48 @@ textarea:focus {
   font-size: 12px;
   font-weight: 700;
 }
+.total-time-input {
+  color: var(--primary-dark);
+  background: #f1f8f5;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.activity-card-with-time {
+  grid-template-columns: 1fr;
+  gap: 9px;
+}
+
+.activity-card-with-time.selected {
+  background: #ecf8f4;
+  border-color: #b8ddd1;
+}
+
+.activity-check-line {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 9px;
+  align-items: start;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.activity-card-with-time small {
+  grid-column: auto;
+}
+
+.activity-time-field {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.activity-time-field select:disabled {
+  color: #98a2b3;
+  background: #eef2f6;
+}
 
 .form-message {
   min-height: 24px;

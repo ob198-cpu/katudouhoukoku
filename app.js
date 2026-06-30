@@ -7,6 +7,7 @@ const HISTORY_KEY = "production_activity_history_v1";
 const DEFAULT_ADMIN_PIN = "";
 const LEGACY_DEFAULT_ADMIN_PIN = "0000";
 const CLOUD_API_URL = window.PRODUCTION_REPORT_API_URL || "";
+const DUPLICATE_REPORT_MESSAGE = "同じ日に同じ氏名で既に報告済みです。再入力はできません。修正が必要な場合は管理者に連絡してください。";
 
 const DEFAULT_ACTIVITIES = [
   { id: "transcription", label: "文字起こし", hint: "納品したかどうか", active: true },
@@ -114,6 +115,25 @@ function minutesText(minutes) {
   const hours = Math.floor(total / 60);
   const rest = total % 60;
   return rest ? `${hours}時間${rest}分` : `${hours}時間`;
+}
+
+function timeOptionsHtml(selectedValue = "") {
+  return '<option value="">時間を選択</option>' +
+    TIME_OPTIONS.map(([label, minutes]) => `<option value="${minutes}" ${Number(selectedValue) === minutes ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
+}
+
+function normalizedNameKey(name) {
+  return String(name || "").replace(/\s+/g, "").toLowerCase();
+}
+
+function hasSameDayNameReport(report, exceptId = "") {
+  const nameKey = normalizedNameKey(report.name);
+  if (!report.date || !nameKey) return false;
+  return loadReports().some(item =>
+    item.id !== exceptId &&
+    item.date === report.date &&
+    normalizedNameKey(item.name) === nameKey
+  );
 }
 
 function parseJson(key, fallback) {
@@ -237,13 +257,23 @@ function normalizeReport(report) {
   const activityLabels = report?.activityLabels && typeof report.activityLabels === "object"
     ? report.activityLabels
     : {};
+  const sourceMinutes = report?.activityMinutes && typeof report.activityMinutes === "object"
+    ? report.activityMinutes
+    : {};
+  const activityMinutes = {};
+  activityIds.forEach(activityId => {
+    const minutes = Math.max(0, Number(sourceMinutes[activityId] || 0));
+    if (minutes) activityMinutes[activityId] = minutes;
+  });
+  const totalFromActivities = Object.values(activityMinutes).reduce((sum, minutes) => sum + minutes, 0);
   return {
     id: report?.id || uid("report"),
     date: report?.date || todayKey(),
     name: String(report?.name || "").trim(),
     activityIds,
     activityLabels,
-    minutes: Math.max(0, Number(report?.minutes || 0)),
+    activityMinutes,
+    minutes: totalFromActivities || Math.max(0, Number(report?.minutes || 0)),
     progress: String(report?.progress || "").trim(),
     createdAt: report?.createdAt || new Date().toISOString(),
     updatedAt: report?.updatedAt || new Date().toISOString()
@@ -295,6 +325,8 @@ function addHistory(action, target, before, after) {
 
 async function addReport(report) {
   const normalized = normalizeReport(report);
+  if (normalized.date !== todayKey()) throw new Error("日付は本日のみ送信できます。");
+  if (hasSameDayNameReport(normalized)) throw new Error(DUPLICATE_REPORT_MESSAGE);
   if (cloudEnabled()) {
     const data = await cloudRequest("submitReport", { report: normalized });
     const saved = normalizeReport(data.report || normalized);
@@ -355,6 +387,26 @@ function reportActivityLabels(report) {
   return report.activityIds.map(activityId => activityLabel(report, activityId));
 }
 
+function reportActivityMinuteEntries(report) {
+  const activityIds = report.activityIds.length ? report.activityIds : ["__none__"];
+  const hasActivityMinutes = report.activityIds.some(activityId => Number(report.activityMinutes?.[activityId] || 0) > 0);
+  if (!hasActivityMinutes) {
+    const minutesShare = report.minutes / activityIds.length;
+    return activityIds.map(activityId => ({ activityId, minutes: minutesShare }));
+  }
+  return activityIds.map(activityId => ({
+    activityId,
+    minutes: Math.max(0, Number(report.activityMinutes?.[activityId] || 0))
+  }));
+}
+
+function reportActivitySummaryText(report) {
+  return reportActivityMinuteEntries(report)
+    .filter(entry => entry.activityId !== "__none__")
+    .map(entry => `${activityLabel(report, entry.activityId)}（${minutesText(entry.minutes)}）`)
+    .join("、") || "-";
+}
+
 function setMessage(selector, text, type = "ok") {
   const target = $(selector);
   if (!target) return;
@@ -369,23 +421,23 @@ function currentAdminPin() {
 }
 
 function initFormPage() {
-  const dateInput = $("#report-date");
-  const minutesSelect = $("#report-minutes");
-  if (dateInput) dateInput.value = todayKey();
-  if (minutesSelect) {
-    minutesSelect.innerHTML = '<option value="">選択してください</option>' +
-      TIME_OPTIONS.map(([label, minutes]) => '<option value="' + minutes + '">' + escapeHtml(label) + '</option>').join("");
-  }
+  lockReportDateToToday();
+  updateTotalMinutes();
   renderFormActivities();
   refreshCloudPublic().then(() => renderFormActivities());
 
+  $("#report-name")?.addEventListener("input", updateDuplicateWarning);
   $("#clear-form")?.addEventListener("click", clearForm);
   $("#report-form")?.addEventListener("submit", async event => {
     event.preventDefault();
     const report = collectFormReport();
-    const error = validateReport(report);
+    const error = validateReport(report, { todayOnly: true, requireActivityMinutes: true, preventDuplicate: true });
     if (error) {
       setMessage("#form-message", error, "error");
+      return;
+    }
+    if (!confirmReportSubmission(report)) {
+      setMessage("#form-message", "送信をキャンセルしました。", "error");
       return;
     }
     const submitButton = event.submitter || $("#report-form button[type='submit']");
@@ -411,15 +463,25 @@ function renderFormActivities(selectedIds = []) {
     container.innerHTML = '<div class="empty-state">現在選択できる生産活動項目がありません。</div>';
     return;
   }
-  container.innerHTML = activities.map(activity => `
-    <label class="activity-card">
-      <input type="checkbox" name="activity" value="${escapeHtml(activity.id)}" ${selected.has(activity.id) ? "checked" : ""}>
-      <span>${escapeHtml(activity.label)}</span>
-      ${activity.hint ? `<small>${escapeHtml(activity.hint)}</small>` : ""}
-    </label>
-  `).join("");
-  $$('[name="activity"]').forEach(input => input.addEventListener("change", updateProgressPlaceholder));
-  updateProgressPlaceholder();
+  container.innerHTML = activities.map((activity, index) => {
+    const inputId = `activity-${index}-${activity.id}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+    return `
+      <div class="activity-card activity-card-with-time" data-activity-card="${escapeHtml(activity.id)}">
+        <label class="activity-check-line" for="${escapeHtml(inputId)}">
+          <input id="${escapeHtml(inputId)}" type="checkbox" name="activity" value="${escapeHtml(activity.id)}" ${selected.has(activity.id) ? "checked" : ""}>
+          <span>${escapeHtml(activity.label)}</span>
+        </label>
+        ${activity.hint ? `<small>${escapeHtml(activity.hint)}</small>` : ""}
+        <label class="activity-time-field">
+          作業時間
+          <select name="activity-minutes" data-activity-minutes="${escapeHtml(activity.id)}" disabled>${timeOptionsHtml()}</select>
+        </label>
+      </div>
+    `;
+  }).join("");
+  $$('[name="activity"]').forEach(input => input.addEventListener("change", handleActivitySelectionChange));
+  $$('[name="activity-minutes"]').forEach(select => select.addEventListener("change", updateTotalMinutes));
+  handleActivitySelectionChange();
 }
 
 function updateProgressPlaceholder() {
@@ -431,6 +493,90 @@ function updateProgressPlaceholder() {
   textarea.placeholder = hints.map((activity, index) => `${index + 1}. ${activity.label}: ${activity.hint || "納品数・進行度合い"}`).join("\n");
 }
 
+function findActivityMinutesSelect(activityId) {
+  return $$('[name="activity-minutes"]').find(select => select.dataset.activityMinutes === activityId) || null;
+}
+
+function handleActivitySelectionChange() {
+  $$('[name="activity"]').forEach(input => {
+    const select = findActivityMinutesSelect(input.value);
+    const card = input.closest(".activity-card-with-time");
+    if (select) {
+      select.disabled = !input.checked;
+      if (!input.checked) select.value = "";
+    }
+    if (card) card.classList.toggle("selected", input.checked);
+  });
+  updateProgressPlaceholder();
+  updateTotalMinutes();
+}
+
+function updateTotalMinutes() {
+  const total = $$('[name="activity"]:checked').reduce((sum, input) => {
+    const select = findActivityMinutesSelect(input.value);
+    return sum + Number(select?.value || 0);
+  }, 0);
+  const hidden = $("#report-minutes");
+  const display = $("#report-minutes-display");
+  if (hidden) hidden.value = String(total);
+  if (display) display.value = minutesText(total);
+}
+
+function collectActivityMinutes(activityIds) {
+  const activityMinutes = {};
+  activityIds.forEach(activityId => {
+    const minutes = Number(findActivityMinutesSelect(activityId)?.value || 0);
+    if (minutes) activityMinutes[activityId] = minutes;
+  });
+  return activityMinutes;
+}
+
+function confirmReportSubmission(report) {
+  const activities = reportActivityMinuteEntries(report)
+    .filter(entry => entry.activityId !== "__none__")
+    .map(entry => `・${activityLabel(report, entry.activityId)}: ${minutesText(entry.minutes)}`)
+    .join("\n");
+  return window.confirm([
+    "この内容で送信します。よろしいですか？",
+    `日付: ${formatDate(report.date)}`,
+    `氏名: ${report.name}`,
+    "作業内容:",
+    activities || "・未選択",
+    `トータル時間: ${minutesText(report.minutes)}`,
+    "進捗状況:",
+    report.progress
+  ].join("\n"));
+}
+
+function updateDuplicateWarning() {
+  const report = collectFormReport();
+  if (report.name && hasSameDayNameReport(report)) {
+    setMessage("#form-message", DUPLICATE_REPORT_MESSAGE, "error");
+  } else if ($("#form-message")?.textContent === DUPLICATE_REPORT_MESSAGE) {
+    setMessage("#form-message", "", "ok");
+  }
+}
+
+function lockReportDateToToday() {
+  const dateInput = $("#report-date");
+  if (!dateInput) return;
+  const today = todayKey();
+  dateInput.value = today;
+  dateInput.min = today;
+  dateInput.max = today;
+  dateInput.readOnly = true;
+  if (dateInput.dataset.todayLocked === "1") return;
+  dateInput.dataset.todayLocked = "1";
+  dateInput.addEventListener("change", () => {
+    if (dateInput.value !== todayKey()) {
+      dateInput.value = todayKey();
+      setMessage("#form-message", "日付は本日のみ入力できます。", "error");
+    }
+    updateDuplicateWarning();
+  });
+  dateInput.addEventListener("keydown", event => event.preventDefault());
+}
+
 function collectFormReport() {
   const activityIds = $$('[name="activity"]:checked').map(input => input.value);
   const activityMap = new Map(loadActivities().map(activity => [activity.id, activity]));
@@ -438,11 +584,13 @@ function collectFormReport() {
   activityIds.forEach(activityId => {
     activityLabels[activityId] = activityMap.get(activityId)?.label || "";
   });
+  const activityMinutes = collectActivityMinutes(activityIds);
   return normalizeReport({
     date: $("#report-date")?.value || "",
     name: $("#report-name")?.value.trim() || "",
     activityIds,
     activityLabels,
+    activityMinutes,
     minutes: Number($("#report-minutes")?.value || 0),
     progress: $("#report-progress")?.value.trim() || "",
     createdAt: new Date().toISOString(),
@@ -450,10 +598,16 @@ function collectFormReport() {
   });
 }
 
-function validateReport(report) {
+function validateReport(report, options = {}) {
   if (!report.date) return "日付を入力してください。";
+  if (options.todayOnly && report.date !== todayKey()) return "日付は本日のみ入力できます。";
   if (!report.name) return "氏名を入力してください。";
+  if (options.preventDuplicate && hasSameDayNameReport(report)) return DUPLICATE_REPORT_MESSAGE;
   if (!report.activityIds.length) return "生産活動内容を1つ以上選択してください。";
+  if (options.requireActivityMinutes) {
+    const missingTime = report.activityIds.some(activityId => !Number(report.activityMinutes?.[activityId] || 0));
+    if (missingTime) return "選択した作業内容ごとに作業時間を選択してください。";
+  }
   if (!report.minutes) return "所要時間を選択してください。";
   if (!report.progress) return "進捗状況を入力してください。";
   return "";
@@ -461,8 +615,9 @@ function validateReport(report) {
 
 function clearForm() {
   $("#report-form")?.reset();
-  if ($("#report-date")) $("#report-date").value = todayKey();
+  lockReportDateToToday();
   renderFormActivities([]);
+  updateTotalMinutes();
 }
 
 function initAdminPage() {
@@ -619,8 +774,7 @@ function buildSummary(reports) {
 
   reports.forEach(report => {
     const name = report.name || "(無名)";
-    const activityIds = report.activityIds.length ? report.activityIds : ["__none__"];
-    const minutesShare = report.minutes / activityIds.length;
+    const activityEntries = reportActivityMinuteEntries(report);
     if (!staffStats.has(name)) {
       staffStats.set(name, { name, count: 0, minutes: 0, activities: new Map() });
     }
@@ -628,21 +782,21 @@ function buildSummary(reports) {
     staff.count += 1;
     staff.minutes += report.minutes;
 
-    activityIds.forEach(activityId => {
+    activityEntries.forEach(({ activityId, minutes }) => {
       const label = activityId === "__none__" ? "未分類" : activityLabel(report, activityId);
       if (!activityStats.has(activityId)) {
         activityStats.set(activityId, { id: activityId, label, count: 0, minutes: 0 });
       }
       const activity = activityStats.get(activityId);
       activity.count += 1;
-      activity.minutes += minutesShare;
+      activity.minutes += minutes;
 
       if (!staff.activities.has(activityId)) {
         staff.activities.set(activityId, { id: activityId, label, count: 0, minutes: 0 });
       }
       const staffActivity = staff.activities.get(activityId);
       staffActivity.count += 1;
-      staffActivity.minutes += minutesShare;
+      staffActivity.minutes += minutes;
     });
   });
 
@@ -757,6 +911,7 @@ function reportSearchText(report) {
     formatDate(report.date),
     report.name,
     reportActivityLabels(report).join(" "),
+    reportActivitySummaryText(report),
     report.minutes,
     minutesText(report.minutes),
     report.progress,
@@ -802,7 +957,7 @@ function renderReportTable() {
             <tr>
               <td>${escapeHtml(formatDate(report.date))}</td>
               <td><strong>${escapeHtml(report.name)}</strong></td>
-              <td>${escapeHtml(reportActivityLabels(report).join("、"))}</td>
+              <td>${escapeHtml(reportActivitySummaryText(report))}</td>
               <td>${escapeHtml(minutesText(report.minutes))}</td>
               <td>${escapeHtml(report.progress)}</td>
               <td>
