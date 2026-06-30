@@ -3,6 +3,7 @@ const SHEETS = {
   activities: { name: 'Activities', headers: ['id', 'json', 'updatedAt'] },
   history: { name: 'History', headers: ['id', 'json', 'at'] }
 };
+const SPREADSHEET_ID = '1QMvmHhMYTp1-eJ_DEZn6wlUyBtCTe5C4h4rn1N9wZHQ';
 const ADMIN_HASH_KEY = 'ADMIN_PASSWORD_SHA256';
 const HISTORY_LIMIT = 1000;
 const DUPLICATE_REPORT_MESSAGE = '同じ日に同じ氏名で既に報告済みです。再入力はできません。修正が必要な場合は管理者に連絡してください。';
@@ -147,14 +148,14 @@ function ensureAllSheets_() {
 }
 
 function ensureSheet_(def) {
-  const ss = SpreadsheetApp.getActive();
+  const ss = targetSpreadsheet_();
   let sheet = ss.getSheetByName(def.name);
   if (!sheet) sheet = ss.insertSheet(def.name);
   if (sheet.getLastRow() === 0) sheet.appendRow(def.headers);
 }
 
 function readJsonRows_(def) {
-  const sheet = SpreadsheetApp.getActive().getSheetByName(def.name);
+  const sheet = targetSpreadsheet_().getSheetByName(def.name);
   if (!sheet || sheet.getLastRow() < 2) return [];
   const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues();
   return values.map(row => {
@@ -163,7 +164,7 @@ function readJsonRows_(def) {
 }
 
 function writeJsonRows_(def, rows) {
-  const sheet = SpreadsheetApp.getActive().getSheetByName(def.name);
+  const sheet = targetSpreadsheet_().getSheetByName(def.name);
   sheet.clearContents();
   sheet.appendRow(def.headers);
   const values = rows.map(row => [row.id || Utilities.getUuid(), JSON.stringify(row), row.updatedAt || row.at || new Date().toISOString()]);
@@ -178,6 +179,10 @@ function upsertJson_(def, id, row, updatedAt) {
 
 function deleteJson_(def, id) {
   writeJsonRows_(def, readJsonRows_(def).filter(item => item.id !== id));
+}
+
+function targetSpreadsheet_() {
+  return SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID);
 }
 
 function readReports_() { return readJsonRows_(SHEETS.reports).map(normalizeReport_).filter(row => row.date && row.name); }

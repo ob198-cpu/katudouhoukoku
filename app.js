@@ -181,7 +181,13 @@ async function cloudRequest(action, payload = {}, password = "") {
     headers: { "Content-Type": "text/plain;charset=utf-8" },
     body: JSON.stringify({ action, password, payload })
   });
-  const result = await response.json();
+  const text = await response.text();
+  let result;
+  try {
+    result = JSON.parse(text);
+  } catch {
+    throw new Error("クラウド保存先がJSONを返していません。Apps Scriptの初回承認・公開設定を確認してください。");
+  }
   if (!response.ok || !result.ok) throw new Error(result.error || "クラウド保存に失敗しました。");
   return result.data || {};
 }

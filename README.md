@@ -15,11 +15,15 @@
 
 ## クラウド保存の設定
 
-1. Googleスプレッドシートを作成します。
-2. `backend/Code.gs` を Apps Script に貼り付けます。
-3. Apps Scriptで `setupInitialAdminPassword('任意の8文字以上のパスワード')` を一度実行します。
-4. ウェブアプリとしてデプロイし、`/exec` で終わるURLを取得します。
-5. `config.js` の `window.PRODUCTION_REPORT_API_URL` にURLを設定します。
+現在の保存先スプレッドシート:
+
+- `https://docs.google.com/spreadsheets/d/1QMvmHhMYTp1-eJ_DEZn6wlUyBtCTe5C4h4rn1N9wZHQ/edit`
+
+現在のWebアプリURL:
+
+- `https://script.google.com/macros/s/AKfycbwdsedtEdaD_5JQjSZoSZIkgN2jP3XjchuSm65D_2ZoV_OKxf-GWkN5-4s6jKeFyFS3pg/exec`
+
+初回運用時は Apps Script で権限承認を行い、必要に応じて `setupInitialAdminPassword('任意の8文字以上のパスワード')` を一度実行します。
 
 詳細は `backend/README.md` を確認してください。
 
