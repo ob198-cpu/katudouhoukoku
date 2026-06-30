@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>生産活動報告 管理画面</title>
-  <link rel="stylesheet" href="style.css?v=20260630-date-check">
+  <link rel="stylesheet" href="style.css?v=20260630-save-confirm-panel">
 </head>
 <body data-page="admin">
   <header class="site-header">
@@ -209,6 +209,14 @@
               <button type="button" class="secondary-button" id="add-activity">項目追加</button>
             </div>
             <div id="activity-editor" class="activity-editor"></div>
+            <div id="activity-save-confirm" class="confirm-panel hidden">
+              <strong>作業項目を保存しますか？</strong>
+              <span>確認して保存を押すまで、項目の変更は確定されません。</span>
+              <div class="inline-actions">
+                <button type="button" class="primary-button small" id="confirm-save-activities">確認して保存</button>
+                <button type="button" class="secondary-button small" id="cancel-save-activities">キャンセル</button>
+              </div>
+            </div>
             <div class="form-actions">
               <button type="button" class="secondary-button" id="reset-activities">初期項目に戻す</button>
               <button type="button" class="primary-button" id="save-activities">項目を保存</button>
@@ -233,7 +241,7 @@
     </section>
   </main>
 
-  <script src="config.js?v=20260630-date-check"></script>
-  <script src="app.js?v=20260630-date-check"></script>
+  <script src="config.js?v=20260630-save-confirm-panel"></script>
+  <script src="app.js?v=20260630-save-confirm-panel"></script>
 </body>
 </html>

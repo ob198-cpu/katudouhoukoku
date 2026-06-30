@@ -184,6 +184,27 @@ button {
   font-size: 13px;
   font-weight: 800;
 }
+.confirm-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #f0cf8a;
+  border-left: 5px solid var(--warn);
+  border-radius: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  color: #704200;
+  background: #fff7e8;
+}
+
+.confirm-panel strong,
+.confirm-panel span {
+  display: block;
+}
+
+.confirm-panel span {
+  font-size: 13px;
+  font-weight: 800;
+}
 
 .required,
 .required-note {
