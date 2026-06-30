@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>生産活動報告 管理画面</title>
-  <link rel="stylesheet" href="style.css?v=20260630-save-confirm-panel">
+  <link rel="stylesheet" href="style.css?v=20260630-edit-item-time">
 </head>
 <body data-page="admin">
   <header class="site-header">
@@ -144,7 +144,7 @@
               <div class="form-grid">
                 <label>投稿日<input type="date" id="edit-report-date" required></label>
                 <label>氏名<input type="text" id="edit-report-name" required></label>
-                <label>所要時間<select id="edit-report-minutes" required></select></label>
+                <label>トータル時間（自動計算）<input type="text" id="edit-report-minutes-display" class="total-time-input" value="0分" readonly><input type="hidden" id="edit-report-minutes" value="0"></label>
               </div>
               <section class="field-block">
                 <div class="field-title">生産活動内容</div>
@@ -241,7 +241,7 @@
     </section>
   </main>
 
-  <script src="config.js?v=20260630-save-confirm-panel"></script>
-  <script src="app.js?v=20260630-save-confirm-panel"></script>
+  <script src="config.js?v=20260630-edit-item-time"></script>
+  <script src="app.js?v=20260630-edit-item-time"></script>
 </body>
 </html>

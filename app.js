@@ -1121,24 +1121,78 @@ function renderReportTable() {
   `;
 }
 
-function fillMinutesSelect(select, selectedValue = "") {
-  if (!select) return;
-  select.innerHTML = '<option value="">選択してください</option>' +
-    TIME_OPTIONS.map(([label, minutes]) => `<option value="${minutes}" ${Number(selectedValue) === minutes ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
+function editActivityMinuteMap(report) {
+  if (!report || Array.isArray(report)) return {};
+  const result = {};
+  reportActivityMinuteEntries(report).forEach(entry => {
+    if (entry.activityId !== "__none__" && entry.minutes) result[entry.activityId] = entry.minutes;
+  });
+  return result;
 }
 
-function renderEditActivities(selectedIds = []) {
+function renderEditActivities(reportOrSelected = []) {
   const container = $("#edit-activity-list");
   if (!container) return;
+  const selectedIds = Array.isArray(reportOrSelected) ? reportOrSelected : reportOrSelected.activityIds || [];
   const selected = new Set(selectedIds);
+  const minuteMap = editActivityMinuteMap(reportOrSelected);
   const activities = loadActivities();
-  container.innerHTML = activities.map(activity => `
-    <label class="activity-card">
-      <input type="checkbox" name="edit-activity" value="${escapeHtml(activity.id)}" ${selected.has(activity.id) ? "checked" : ""}>
-      <span>${escapeHtml(activity.label)}</span>
-      ${activity.hint ? `<small>${escapeHtml(activity.hint)}</small>` : ""}
-    </label>
-  `).join("") || '<div class="empty-state">生産活動項目がありません。</div>';
+  container.innerHTML = activities.map((activity, index) => {
+    const inputId = `edit-activity-${index}-${activity.id}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+    return `
+      <div class="activity-card activity-card-with-time" data-edit-activity-card="${escapeHtml(activity.id)}">
+        <label class="activity-check-line" for="${escapeHtml(inputId)}">
+          <input id="${escapeHtml(inputId)}" type="checkbox" name="edit-activity" value="${escapeHtml(activity.id)}" ${selected.has(activity.id) ? "checked" : ""}>
+          <span>${escapeHtml(activity.label)}</span>
+        </label>
+        ${activity.hint ? `<small>${escapeHtml(activity.hint)}</small>` : ""}
+        <label class="activity-time-field">
+          作業時間
+          <select name="edit-activity-minutes" data-edit-activity-minutes="${escapeHtml(activity.id)}" ${selected.has(activity.id) ? "" : "disabled"}>${timeOptionsHtml(minuteMap[activity.id] || "")}</select>
+        </label>
+      </div>
+    `;
+  }).join("") || '<div class="empty-state">生産活動項目がありません。</div>';
+  $$('[name="edit-activity"]').forEach(input => input.addEventListener("change", handleEditActivitySelectionChange));
+  $$('[name="edit-activity-minutes"]').forEach(select => select.addEventListener("change", updateEditTotalMinutes));
+  handleEditActivitySelectionChange();
+}
+
+function findEditActivityMinutesSelect(activityId) {
+  return $$('[name="edit-activity-minutes"]').find(select => select.dataset.editActivityMinutes === activityId) || null;
+}
+
+function handleEditActivitySelectionChange() {
+  $$('[name="edit-activity"]').forEach(input => {
+    const select = findEditActivityMinutesSelect(input.value);
+    const card = input.closest(".activity-card-with-time");
+    if (select) {
+      select.disabled = !input.checked;
+      if (!input.checked) select.value = "";
+    }
+    if (card) card.classList.toggle("selected", input.checked);
+  });
+  updateEditTotalMinutes();
+}
+
+function updateEditTotalMinutes() {
+  const total = $$('[name="edit-activity"]:checked').reduce((sum, input) => {
+    const select = findEditActivityMinutesSelect(input.value);
+    return sum + Number(select?.value || 0);
+  }, 0);
+  const hidden = $("#edit-report-minutes");
+  const display = $("#edit-report-minutes-display");
+  if (hidden) hidden.value = String(total);
+  if (display) display.value = minutesText(total);
+}
+
+function collectEditActivityMinutes(activityIds) {
+  const activityMinutes = {};
+  activityIds.forEach(activityId => {
+    const minutes = Number(findEditActivityMinutesSelect(activityId)?.value || 0);
+    if (minutes) activityMinutes[activityId] = minutes;
+  });
+  return activityMinutes;
 }
 
 function startReportEdit(id) {
@@ -1148,9 +1202,10 @@ function startReportEdit(id) {
   $("#edit-report-id").value = report.id;
   $("#edit-report-date").value = report.date;
   $("#edit-report-name").value = report.name;
-  fillMinutesSelect($("#edit-report-minutes"), report.minutes);
+  $("#edit-report-minutes").value = String(report.minutes || 0);
+  if ($("#edit-report-minutes-display")) $("#edit-report-minutes-display").value = minutesText(report.minutes);
   $("#edit-report-progress").value = report.progress;
-  renderEditActivities(report.activityIds);
+  renderEditActivities(report);
   setMessage("#edit-report-message", "", "ok");
   $("#report-edit-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -1160,6 +1215,7 @@ function cancelReportEdit() {
   if ($("#edit-report-id")) $("#edit-report-id").value = "";
   $("#report-edit-panel")?.classList.add("hidden");
   renderEditActivities([]);
+  updateEditTotalMinutes();
   setMessage("#edit-report-message", "", "ok");
 }
 
@@ -1170,12 +1226,14 @@ function collectEditReport() {
   activityIds.forEach(activityId => {
     activityLabels[activityId] = activityMap.get(activityId)?.label || "";
   });
+  const activityMinutes = collectEditActivityMinutes(activityIds);
   return normalizeReport({
     id: $("#edit-report-id")?.value || "",
     date: $("#edit-report-date")?.value || "",
     name: $("#edit-report-name")?.value.trim() || "",
     activityIds,
     activityLabels,
+    activityMinutes,
     minutes: Number($("#edit-report-minutes")?.value || 0),
     progress: $("#edit-report-progress")?.value.trim() || ""
   });
@@ -1185,7 +1243,7 @@ async function saveReportEdit(event) {
   event.preventDefault();
   const id = $("#edit-report-id")?.value || "";
   const report = collectEditReport();
-  const error = validateReport(report);
+  const error = validateReport(report, { requireActivityMinutes: true });
   if (error) {
     setMessage("#edit-report-message", error, "error");
     return;
