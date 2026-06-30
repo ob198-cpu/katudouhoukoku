@@ -1,5 +1,5 @@
 const SHEETS = {
-  reports: { name: 'Reports', headers: ['id', 'json', 'updatedAt'] },
+  reports: { name: 'Reports', type: 'reports', headers: ['投稿日', '氏名', '生産活動内容', '活動別時間', '合計時間(分)', '合計時間', '進捗状況', '選択投稿日', '実送信日', '日付正誤', '送信日時', '更新日時', 'id', 'json'] },
   activities: { name: 'Activities', headers: ['id', 'json', 'updatedAt'] },
   history: { name: 'History', headers: ['id', 'json', 'at'] }
 };
@@ -151,24 +151,91 @@ function ensureSheet_(def) {
   const ss = targetSpreadsheet_();
   let sheet = ss.getSheetByName(def.name);
   if (!sheet) sheet = ss.insertSheet(def.name);
-  if (sheet.getLastRow() === 0) sheet.appendRow(def.headers);
+  if (sheet.getLastRow() === 0) {
+    writeJsonRowsToSheet_(sheet, def, []);
+    return;
+  }
+  const currentHeaders = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0].map(String);
+  const needsReadableHeader = def.headers.some(function(header, index) {
+    return currentHeaders[index] !== header;
+  });
+  if (needsReadableHeader) {
+    writeJsonRowsToSheet_(sheet, def, readJsonRowsFromSheet_(sheet));
+  } else {
+    applySheetPresentation_(sheet, def);
+  }
 }
 
 function readJsonRows_(def) {
   const sheet = targetSpreadsheet_().getSheetByName(def.name);
   if (!sheet || sheet.getLastRow() < 2) return [];
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues();
-  return values.map(row => {
-    try { return JSON.parse(row[1] || '{}'); } catch (e) { return null; }
+  return readJsonRowsFromSheet_(sheet);
+}
+
+function readJsonRowsFromSheet_(sheet) {
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const values = sheet.getRange(1, 1, sheet.getLastRow(), Math.max(sheet.getLastColumn(), 3)).getValues();
+  const headers = values[0].map(function(value) { return String(value || ''); });
+  let jsonIndex = headers.indexOf('json');
+  if (jsonIndex < 0) jsonIndex = 1;
+  return values.slice(1).map(function(row) {
+    try { return JSON.parse(row[jsonIndex] || '{}'); } catch (e) { return null; }
   }).filter(Boolean);
 }
 
 function writeJsonRows_(def, rows) {
   const sheet = targetSpreadsheet_().getSheetByName(def.name);
+  writeJsonRowsToSheet_(sheet, def, rows);
+}
+
+function writeJsonRowsToSheet_(sheet, def, rows) {
+  if (sheet.getMaxColumns() < def.headers.length) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), def.headers.length - sheet.getMaxColumns());
+  }
   sheet.clearContents();
-  sheet.appendRow(def.headers);
-  const values = rows.map(row => [row.id || Utilities.getUuid(), JSON.stringify(row), row.updatedAt || row.at || new Date().toISOString()]);
-  if (values.length) sheet.getRange(2, 1, values.length, 3).setValues(values);
+  sheet.getRange(1, 1, 1, def.headers.length).setValues([def.headers]);
+  const values = rows.map(function(row) { return rowValuesForSheet_(def, row); });
+  if (values.length) sheet.getRange(2, 1, values.length, def.headers.length).setValues(values);
+  sheet.getRange(1, 1, 1, def.headers.length).setFontWeight('bold').setBackground('#0f766e').setFontColor('#ffffff');
+  sheet.autoResizeColumns(1, def.headers.length);
+  applySheetPresentation_(sheet, def);
+}
+
+function applySheetPresentation_(sheet, def) {
+  sheet.setFrozenRows(1);
+  if (def.type === 'reports') {
+    sheet.showColumns(1, def.headers.length);
+    sheet.hideColumns(13, 2);
+  }
+}
+
+function rowValuesForSheet_(def, row) {
+  if (def.type === 'reports') return reportRowValues_(row);
+  return [row.id || Utilities.getUuid(), JSON.stringify(row), row.updatedAt || row.at || new Date().toISOString()];
+}
+
+function reportRowValues_(row) {
+  const report = normalizeReport_(row);
+  const check = report.dateCheck || {};
+  const selectedDate = check.selectedDate || report.date || '';
+  const submittedDate = check.submittedDate || report.submittedDate || dateKeyFromTimestamp_(report.submittedAt || report.createdAt) || '';
+  const correct = selectedDate && submittedDate && selectedDate === submittedDate;
+  return [
+    formatDateForSheet_(report.date),
+    report.name,
+    reportActivityLabelsText_(report),
+    reportActivityMinutesText_(report),
+    report.minutes,
+    minutesText_(report.minutes),
+    report.progress,
+    formatDateForSheet_(selectedDate),
+    formatDateForSheet_(submittedDate),
+    correct ? '正' : '誤',
+    formatDateTimeForSheet_(report.submittedAt || report.createdAt),
+    formatDateTimeForSheet_(report.updatedAt),
+    report.id,
+    JSON.stringify(report)
+  ];
 }
 
 function upsertJson_(def, id, row, updatedAt) {
@@ -275,6 +342,46 @@ function reportLabel_(report) {
     return current ? current.label : (report.activityLabels && report.activityLabels[id]) || '削除済み項目';
   });
   return [report.date, report.name, labels.join('、')].join(' ').trim();
+}
+
+function reportActivityLabelFromRecord_(report, activityId) {
+  if (report.activityLabels && report.activityLabels[activityId]) return report.activityLabels[activityId];
+  return activityId || '不明';
+}
+
+function reportActivityLabelsText_(report) {
+  return report.activityIds.map(function(activityId) {
+    return reportActivityLabelFromRecord_(report, activityId);
+  }).join('、');
+}
+
+function reportActivityMinutesText_(report) {
+  return report.activityIds.map(function(activityId) {
+    const label = reportActivityLabelFromRecord_(report, activityId);
+    const minutes = Number(report.activityMinutes && report.activityMinutes[activityId] || 0);
+    return label + ': ' + minutesText_(minutes);
+  }).join('、');
+}
+
+function minutesText_(minutes) {
+  const total = Math.max(0, Number(minutes || 0));
+  const hours = Math.floor(total / 60);
+  const rest = total % 60;
+  if (!hours) return rest + '分';
+  if (!rest) return hours + '時間';
+  return hours + '時間' + rest + '分';
+}
+
+function formatDateForSheet_(value) {
+  if (!value) return '';
+  return String(value).slice(0, 10).replace(/-/g, '/');
+}
+
+function formatDateTimeForSheet_(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return String(value);
+  return Utilities.formatDate(date, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
 }
 
 function assertAdmin_(password) {
