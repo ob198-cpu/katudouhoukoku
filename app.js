@@ -696,7 +696,7 @@ function initAdminPage() {
   $("#reset-activities")?.addEventListener("click", resetActivities);
   $("#activity-editor")?.addEventListener("click", event => {
     const button = event.target.closest("[data-remove-activity]");
-    if (button) button.closest(".activity-editor-row")?.remove();
+    if (button) removeActivityEditorRow(button);
   });
   $("#pin-form")?.addEventListener("submit", async event => {
     event.preventDefault();
@@ -1168,6 +1168,14 @@ function addActivityEditorRow() {
   $("#activity-editor")?.insertAdjacentHTML("beforeend", activityEditorRow({ active: true }));
 }
 
+function removeActivityEditorRow(button) {
+  const row = button.closest(".activity-editor-row");
+  if (!row) return;
+  const label = row.querySelector(".activity-label")?.value.trim() || "この作業項目";
+  if (!confirm(`${label}を削除します。項目を保存するまで確定されません。よろしいですか？`)) return;
+  row.remove();
+}
+
 function collectActivityEditor() {
   return $$("#activity-editor .activity-editor-row")
     .map((row, index) => ({
@@ -1186,6 +1194,7 @@ async function saveActivityEditor() {
     alert("項目を1つ以上入力してください。");
     return;
   }
+  if (!confirm("作業項目を保存します。よろしいですか？")) return;
   try {
     if (cloudEnabled()) {
       await cloudAdminAction("saveActivities", { activities });
