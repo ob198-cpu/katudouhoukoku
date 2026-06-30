@@ -48,8 +48,17 @@ function handleAction_(action, payload, password) {
 }
 
 function submitReport_(report) {
-  const normalized = normalizeReport_(report);
-  if (normalized.date !== toDateKey_(new Date())) throw new Error('日付は本日のみ送信できます。');
+  const now = new Date();
+  const submittedAt = now.toISOString();
+  const submittedDate = toDateKey_(now);
+  const selectedDate = report.date || submittedDate;
+  const normalized = normalizeReport_(Object.assign({}, report, {
+    submittedAt: submittedAt,
+    submittedDate: submittedDate,
+    dateCheck: { selectedDate: selectedDate, submittedDate: submittedDate, correct: selectedDate === submittedDate },
+    createdAt: submittedAt,
+    updatedAt: submittedAt
+  }));
   const duplicate = readReports_().find(row =>
     row.id !== normalized.id &&
     row.date === normalized.date &&
@@ -67,6 +76,9 @@ function updateReport_(id, report) {
   if (!before) throw new Error('編集対象の報告が見つかりません。');
   const updated = normalizeReport_(Object.assign({}, before, report, {
     id: before.id,
+    submittedAt: before.submittedAt,
+    submittedDate: before.submittedDate,
+    dateCheck: before.dateCheck,
     createdAt: before.createdAt,
     updatedAt: new Date().toISOString()
   }));
@@ -200,6 +212,12 @@ function normalizeReport_(report) {
   const totalFromActivities = Object.keys(activityMinutes).reduce(function(sum, activityId) {
     return sum + Number(activityMinutes[activityId] || 0);
   }, 0);
+  const nowIso = new Date().toISOString();
+  const submittedAt = report.submittedAt || report.createdAt || nowIso;
+  const submittedDate = report.submittedDate || dateKeyFromTimestamp_(submittedAt) || toDateKey_(new Date());
+  const selectedDateForCheck = report.dateCheck && report.dateCheck.selectedDate ? report.dateCheck.selectedDate : (report.date || toDateKey_(new Date()));
+  const submittedDateForCheck = report.dateCheck && report.dateCheck.submittedDate ? report.dateCheck.submittedDate : submittedDate;
+  const dateCheck = { selectedDate: selectedDateForCheck, submittedDate: submittedDateForCheck, correct: selectedDateForCheck === submittedDateForCheck };
   return {
     id: report.id || 'report_' + Date.now() + '_' + Utilities.getUuid().slice(0, 8),
     date: report.date || toDateKey_(new Date()),
@@ -209,8 +227,11 @@ function normalizeReport_(report) {
     activityMinutes: activityMinutes,
     minutes: totalFromActivities || Math.max(0, Number(report.minutes || 0)),
     progress: String(report.progress || '').trim(),
-    createdAt: report.createdAt || new Date().toISOString(),
-    updatedAt: report.updatedAt || new Date().toISOString()
+    submittedAt: submittedAt,
+    submittedDate: submittedDate,
+    dateCheck: dateCheck,
+    createdAt: report.createdAt || submittedAt,
+    updatedAt: report.updatedAt || nowIso
   };
 }
 
@@ -276,6 +297,13 @@ function normalizedNameKey_(name) {
 
 function toDateKey_(date) {
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+}
+
+function dateKeyFromTimestamp_(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (!isNaN(date.getTime())) return toDateKey_(date);
+  return /^\d{4}-\d{2}-\d{2}/.test(String(value)) ? String(value).slice(0, 10) : '';
 }
 
 function json_(payload) {

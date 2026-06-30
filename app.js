@@ -109,6 +109,20 @@ function formatDate(value) {
   return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
+function dateKeyFromTimestamp(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) return toDateKey(date);
+  return /^\d{4}-\d{2}-\d{2}/.test(String(value)) ? String(value).slice(0, 10) : "";
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return `${formatDate(toDateKey(date))} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 function minutesText(minutes) {
   const total = Math.round(Number(minutes) || 0);
   if (total < 60) return `${total}分`;
@@ -266,6 +280,16 @@ function normalizeReport(report) {
     if (minutes) activityMinutes[activityId] = minutes;
   });
   const totalFromActivities = Object.values(activityMinutes).reduce((sum, minutes) => sum + minutes, 0);
+  const nowIso = new Date().toISOString();
+  const submittedAt = report?.submittedAt || report?.createdAt || nowIso;
+  const submittedDate = report?.submittedDate || dateKeyFromTimestamp(submittedAt) || todayKey();
+  const selectedDateForCheck = report?.dateCheck?.selectedDate || report?.date || todayKey();
+  const submittedDateForCheck = report?.dateCheck?.submittedDate || submittedDate;
+  const dateCheck = {
+    selectedDate: selectedDateForCheck,
+    submittedDate: submittedDateForCheck,
+    correct: selectedDateForCheck === submittedDateForCheck
+  };
   return {
     id: report?.id || uid("report"),
     date: report?.date || todayKey(),
@@ -275,8 +299,11 @@ function normalizeReport(report) {
     activityMinutes,
     minutes: totalFromActivities || Math.max(0, Number(report?.minutes || 0)),
     progress: String(report?.progress || "").trim(),
-    createdAt: report?.createdAt || new Date().toISOString(),
-    updatedAt: report?.updatedAt || new Date().toISOString()
+    submittedAt,
+    submittedDate,
+    dateCheck,
+    createdAt: report?.createdAt || submittedAt,
+    updatedAt: report?.updatedAt || nowIso
   };
 }
 
@@ -324,8 +351,17 @@ function addHistory(action, target, before, after) {
 }
 
 async function addReport(report) {
-  const normalized = normalizeReport(report);
-  if (normalized.date !== todayKey()) throw new Error("日付は本日のみ送信できます。");
+  const submittedAt = new Date().toISOString();
+  const submittedDate = todayKey();
+  const selectedDate = report?.date || submittedDate;
+  const normalized = normalizeReport({
+    ...report,
+    submittedAt,
+    submittedDate,
+    dateCheck: { selectedDate, submittedDate, correct: selectedDate === submittedDate },
+    createdAt: submittedAt,
+    updatedAt: submittedAt
+  });
   if (hasSameDayNameReport(normalized)) throw new Error(DUPLICATE_REPORT_MESSAGE);
   if (cloudEnabled()) {
     const data = await cloudRequest("submitReport", { report: normalized });
@@ -356,6 +392,9 @@ async function updateReport(id, nextReport) {
     ...before,
     ...nextReport,
     id: before.id,
+    submittedAt: before.submittedAt,
+    submittedDate: before.submittedDate,
+    dateCheck: before.dateCheck,
     createdAt: before.createdAt,
     updatedAt: new Date().toISOString()
   });
@@ -421,7 +460,7 @@ function currentAdminPin() {
 }
 
 function initFormPage() {
-  lockReportDateToToday();
+  initReportDateInput();
   updateTotalMinutes();
   renderFormActivities();
   refreshCloudPublic().then(() => renderFormActivities());
@@ -431,7 +470,7 @@ function initFormPage() {
   $("#report-form")?.addEventListener("submit", async event => {
     event.preventDefault();
     const report = collectFormReport();
-    const error = validateReport(report, { todayOnly: true, requireActivityMinutes: true, preventDuplicate: true });
+    const error = validateReport(report, { requireActivityMinutes: true, preventDuplicate: true });
     if (error) {
       setMessage("#form-message", error, "error");
       return;
@@ -557,24 +596,16 @@ function updateDuplicateWarning() {
   }
 }
 
-function lockReportDateToToday() {
+function initReportDateInput() {
   const dateInput = $("#report-date");
   if (!dateInput) return;
-  const today = todayKey();
-  dateInput.value = today;
-  dateInput.min = today;
-  dateInput.max = today;
-  dateInput.readOnly = true;
-  if (dateInput.dataset.todayLocked === "1") return;
-  dateInput.dataset.todayLocked = "1";
-  dateInput.addEventListener("change", () => {
-    if (dateInput.value !== todayKey()) {
-      dateInput.value = todayKey();
-      setMessage("#form-message", "日付は本日のみ入力できます。", "error");
-    }
-    updateDuplicateWarning();
-  });
-  dateInput.addEventListener("keydown", event => event.preventDefault());
+  if (!dateInput.value) dateInput.value = todayKey();
+  dateInput.readOnly = false;
+  dateInput.removeAttribute("min");
+  dateInput.removeAttribute("max");
+  if (dateInput.dataset.dateInitialized === "1") return;
+  dateInput.dataset.dateInitialized = "1";
+  dateInput.addEventListener("change", updateDuplicateWarning);
 }
 
 function collectFormReport() {
@@ -600,7 +631,6 @@ function collectFormReport() {
 
 function validateReport(report, options = {}) {
   if (!report.date) return "日付を入力してください。";
-  if (options.todayOnly && report.date !== todayKey()) return "日付は本日のみ入力できます。";
   if (!report.name) return "氏名を入力してください。";
   if (options.preventDuplicate && hasSameDayNameReport(report)) return DUPLICATE_REPORT_MESSAGE;
   if (!report.activityIds.length) return "生産活動内容を1つ以上選択してください。";
@@ -615,7 +645,7 @@ function validateReport(report, options = {}) {
 
 function clearForm() {
   $("#report-form")?.reset();
-  lockReportDateToToday();
+  initReportDateInput();
   renderFormActivities([]);
   updateTotalMinutes();
 }
@@ -905,6 +935,120 @@ function staffSummaryTable(items) {
   `;
 }
 
+function reportDateCheck(report) {
+  const selectedDate = report.dateCheck?.selectedDate || report.date || "";
+  const submittedDate = report.dateCheck?.submittedDate || report.submittedDate || dateKeyFromTimestamp(report.submittedAt || report.createdAt) || "";
+  return {
+    selectedDate,
+    submittedDate,
+    correct: !!selectedDate && !!submittedDate && selectedDate === submittedDate
+  };
+}
+
+function percentText(numerator, denominator) {
+  if (!denominator) return "0%";
+  return `${((numerator / denominator) * 100).toFixed(1)}%`;
+}
+
+function buildDateCheckStats(reports) {
+  const userStats = new Map();
+  let mistakes = 0;
+  reports.forEach(report => {
+    const check = reportDateCheck(report);
+    const name = report.name || "(無名)";
+    if (!userStats.has(name)) userStats.set(name, { name, total: 0, correct: 0, mistakes: 0 });
+    const user = userStats.get(name);
+    user.total += 1;
+    if (check.correct) {
+      user.correct += 1;
+    } else {
+      user.mistakes += 1;
+      mistakes += 1;
+    }
+  });
+  return {
+    total: reports.length,
+    correct: reports.length - mistakes,
+    mistakes,
+    users: Array.from(userStats.values()).sort((a, b) => (b.mistakes / Math.max(b.total, 1)) - (a.mistakes / Math.max(a.total, 1)) || b.mistakes - a.mistakes || a.name.localeCompare(b.name, "ja"))
+  };
+}
+
+function renderDateCheckView() {
+  if (!$("#date-check-total")) return;
+  const reports = loadReports().sort((a, b) => `${b.submittedDate || ""}${b.submittedAt || b.createdAt}`.localeCompare(`${a.submittedDate || ""}${a.submittedAt || a.createdAt}`));
+  const stats = buildDateCheckStats(reports);
+  $("#date-check-total").textContent = `${stats.total}件`;
+  $("#date-check-correct").textContent = `${stats.correct}件`;
+  $("#date-check-mistakes").textContent = `${stats.mistakes}件`;
+  $("#date-check-rate").textContent = percentText(stats.mistakes, stats.total);
+  renderUserDateErrorTable(stats.users);
+  renderDateCheckTable(reports);
+}
+
+function renderUserDateErrorTable(items) {
+  const container = $("#user-date-error-table");
+  if (!container) return;
+  if (!items.length) {
+    container.innerHTML = '<div class="empty-state">対象データがありません。</div>';
+    return;
+  }
+  container.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>利用者</th><th>報告件数</th><th>正</th><th>誤</th><th>ミス率</th></tr></thead>
+        <tbody>
+          ${items.map(item => `
+            <tr>
+              <td><strong>${escapeHtml(item.name)}</strong></td>
+              <td>${item.total}件</td>
+              <td>${item.correct}件</td>
+              <td>${item.mistakes}件</td>
+              <td>${percentText(item.mistakes, item.total)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function dateStatusPill(correct) {
+  return correct
+    ? '<span class="status-pill ok">正</span>'
+    : '<span class="status-pill error">誤</span>';
+}
+
+function renderDateCheckTable(reports) {
+  const container = $("#date-check-table");
+  if (!container) return;
+  if (!reports.length) {
+    container.innerHTML = '<div class="empty-state">対象データがありません。</div>';
+    return;
+  }
+  container.innerHTML = `
+    <div class="table-wrap">
+      <table class="date-check-table">
+        <thead><tr><th>送信日時</th><th>氏名</th><th>選択投稿日</th><th>実送信日</th><th>正誤</th><th>活動</th></tr></thead>
+        <tbody>
+          ${reports.map(report => {
+            const check = reportDateCheck(report);
+            return `
+              <tr>
+                <td>${escapeHtml(formatDateTime(report.submittedAt || report.createdAt))}</td>
+                <td><strong>${escapeHtml(report.name)}</strong></td>
+                <td>${escapeHtml(formatDate(check.selectedDate))}</td>
+                <td>${escapeHtml(formatDate(check.submittedDate))}</td>
+                <td>${dateStatusPill(check.correct)}</td>
+                <td>${escapeHtml(reportActivitySummaryText(report))}</td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
 function reportSearchText(report) {
   return [
     report.date,
@@ -950,12 +1094,13 @@ function renderReportTable() {
     <div class="table-wrap">
       <table class="report-table">
         <thead>
-          <tr><th>日付</th><th>氏名</th><th>活動</th><th>時間</th><th>進捗</th><th>操作</th></tr>
+          <tr><th>投稿日</th><th>実送信日</th><th>氏名</th><th>活動</th><th>時間</th><th>進捗</th><th>操作</th></tr>
         </thead>
         <tbody>
           ${reports.map(report => `
             <tr>
               <td>${escapeHtml(formatDate(report.date))}</td>
+              <td>${escapeHtml(formatDate(report.submittedDate))}</td>
               <td><strong>${escapeHtml(report.name)}</strong></td>
               <td>${escapeHtml(reportActivitySummaryText(report))}</td>
               <td>${escapeHtml(minutesText(report.minutes))}</td>

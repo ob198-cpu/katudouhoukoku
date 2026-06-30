@@ -568,12 +568,37 @@ tr:last-child td {
 }
 
 .report-table {
+  min-width: 980px;
+}
+
+.date-check-table {
   min-width: 900px;
 }
 
-.report-table td:nth-child(5) {
+.report-table td:nth-child(6) {
   min-width: 280px;
   white-space: pre-wrap;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.status-pill.ok {
+  color: #145342;
+  background: #e4f6ee;
+}
+
+.status-pill.error {
+  color: #8f1d13;
+  background: #fdecea;
 }
 
 .report-tools {

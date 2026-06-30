@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>生産活動報告 管理画面</title>
-  <link rel="stylesheet" href="style.css?v=20260630-admin-confirm">
+  <link rel="stylesheet" href="style.css?v=20260630-date-check">
 </head>
 <body data-page="admin">
   <header class="site-header">
@@ -38,6 +38,7 @@
       <div class="admin-tabs" aria-label="管理メニュー">
         <button type="button" class="admin-tab active" data-admin-view="reports">データ管理</button>
         <button type="button" class="admin-tab" data-admin-view="summary">集計</button>
+        <button type="button" class="admin-tab" data-admin-view="date-check">日付ミス確認</button>
         <button type="button" class="admin-tab" data-admin-view="settings">項目編集</button>
       </div>
 
@@ -141,7 +142,7 @@
             <form id="report-edit-form" autocomplete="off">
               <input type="hidden" id="edit-report-id">
               <div class="form-grid">
-                <label>日付<input type="date" id="edit-report-date" required></label>
+                <label>投稿日<input type="date" id="edit-report-date" required></label>
                 <label>氏名<input type="text" id="edit-report-name" required></label>
                 <label>所要時間<select id="edit-report-minutes" required></select></label>
               </div>
@@ -167,6 +168,39 @@
         </article>
       </section>
 
+      <section class="admin-view" data-admin-panel="date-check">
+        <div class="toolbar-card">
+          <div class="card-head compact-head">
+            <div>
+              <p class="section-kicker">日付確認</p>
+              <h2>投稿日と実送信日の正誤確認</h2>
+              <p class="muted">利用者が選んだ投稿日と、実際に送信された日を比較します。</p>
+            </div>
+          </div>
+          <div class="kpi-grid">
+            <div class="kpi-card"><span>確認対象</span><strong id="date-check-total">0件</strong></div>
+            <div class="kpi-card"><span>正しい入力</span><strong id="date-check-correct">0件</strong></div>
+            <div class="kpi-card"><span>日付ミス</span><strong id="date-check-mistakes">0件</strong></div>
+            <div class="kpi-card"><span>全体ミス率</span><strong id="date-check-rate">0%</strong></div>
+          </div>
+        </div>
+
+        <div class="table-grid date-check-grid">
+          <article class="card">
+            <div class="card-head">
+              <h2>利用者別ミス率</h2>
+            </div>
+            <div id="user-date-error-table"></div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <h2>日付正誤一覧</h2>
+            </div>
+            <div id="date-check-table"></div>
+          </article>
+        </div>
+      </section>
       <section class="admin-view" data-admin-panel="settings">
         <div class="settings-grid">
           <article class="card">
@@ -199,7 +233,7 @@
     </section>
   </main>
 
-  <script src="config.js?v=20260630-admin-confirm"></script>
-  <script src="app.js?v=20260630-admin-confirm"></script>
+  <script src="config.js?v=20260630-date-check"></script>
+  <script src="app.js?v=20260630-date-check"></script>
 </body>
 </html>
