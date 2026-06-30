@@ -718,6 +718,11 @@ function initAdminPage() {
     }
   });
   $("#history-list")?.addEventListener("click", event => {
+    const detailButton = event.target.closest("[data-history-detail]");
+    if (detailButton) {
+      showHistoryDetail(detailButton.dataset.historyDetail);
+      return;
+    }
     const restoreButton = event.target.closest("[data-restore-history]");
     if (restoreButton) restoreHistoryEntry(restoreButton.dataset.restoreHistory);
   });
@@ -1267,9 +1272,14 @@ function renderHistory() {
       <strong>${escapeHtml(item.action)} / ${escapeHtml(item.target)}</strong>
       <span>${escapeHtml(item.label || "-")}</span>
       <span class="history-meta">${escapeHtml(item.at ? `${formatDate(item.at.slice(0, 10))} ${item.at.slice(11, 16)}` : "-")}</span>
-      ${historyRestoreButton(item)}
+      ${historyActionButtons(item)}
     </div>
   `).join("") || '<div class="empty-state">操作履歴はまだありません。</div>';
+}
+
+function historyActionButtons(item) {
+  const detailButton = `<button type="button" class="secondary-button small" data-history-detail="${escapeHtml(item.id)}">詳細</button>`;
+  return `<div class="history-actions">${detailButton}${historyRestoreButton(item)}</div>`;
 }
 
 function historyRestoreButton(item) {
@@ -1281,7 +1291,155 @@ function historyRestoreButton(item) {
       : item.action === "削除"
         ? "削除前に復元"
         : "編集前に戻す";
-  return `<div class="history-actions"><button type="button" class="secondary-button small" data-restore-history="${escapeHtml(item.id)}">${escapeHtml(label)}</button></div>`;
+  return `<button type="button" class="secondary-button small" data-restore-history="${escapeHtml(item.id)}">${escapeHtml(label)}</button>`;
+}
+
+function showHistoryDetail(historyId) {
+  const item = loadHistory().find(entry => entry.id === historyId);
+  if (!item) {
+    alert("履歴データが見つかりません。");
+    return;
+  }
+  alert(historyDetailText(item));
+}
+
+function historyDetailText(item) {
+  const lines = [
+    `操作: ${item.action || "-" } / ${item.target || "-"}`,
+    `対象: ${item.label || "-"}`,
+    `日時: ${item.at ? formatDateTime(item.at) : "-"}`,
+    "",
+    "変更内容:"
+  ];
+  const changes = historyChangeLines(item);
+  lines.push(...(changes.length ? changes : ["詳細な差分はありません。"]));
+  if (item.target === "報告" && item.before?.id) {
+    lines.push("", "「編集前に戻す」を押すと、変更前の内容へ復元します。");
+  }
+  return lines.join("\n");
+}
+
+function historyChangeLines(item) {
+  if (item.target === "報告") return historyReportChangeLines(item);
+  if (item.target === "生産活動項目") return historyActivityChangeLines(item);
+  return historyFallbackChangeLines(item);
+}
+
+function historyReportChangeLines(item) {
+  if (Array.isArray(item.before?.reports)) {
+    const beforeCount = item.before.reports.length;
+    const afterCount = Array.isArray(item.after?.reports) ? item.after.reports.length : Number(item.after?.reports || 0);
+    return [`報告件数: ${beforeCount}件 → ${Number.isFinite(afterCount) ? afterCount : 0}件`];
+  }
+  if (item.before?.id && item.after?.id) {
+    const before = normalizeReport(item.before);
+    const after = normalizeReport(item.after);
+    return [
+      historyFieldChangeLine("投稿日", formatDate(before.date), formatDate(after.date)),
+      historyFieldChangeLine("実際の送信日", formatDate(before.submittedDate), formatDate(after.submittedDate)),
+      historyFieldChangeLine("氏名", before.name, after.name),
+      historyFieldChangeLine("生産活動内容", historyReportActivitiesText(before), historyReportActivitiesText(after)),
+      historyFieldChangeLine("所要時間合計", minutesText(before.minutes), minutesText(after.minutes)),
+      historyFieldChangeLine("進捗状況", before.progress || "-", after.progress || "-"),
+      historyFieldChangeLine("日付チェック", historyDateCheckText(before), historyDateCheckText(after))
+    ].filter(Boolean);
+  }
+  if (item.after?.id) {
+    return ["登録された内容:", ...historyReportSnapshotLines(normalizeReport(item.after))];
+  }
+  if (item.before?.id) {
+    return ["削除された内容:", ...historyReportSnapshotLines(normalizeReport(item.before))];
+  }
+  return historyFallbackChangeLines(item);
+}
+
+function historyReportSnapshotLines(report) {
+  return [
+    `投稿日: ${formatDate(report.date)}`,
+    `実際の送信日: ${formatDate(report.submittedDate)}`,
+    `氏名: ${report.name || "-"}`,
+    `生産活動内容: ${historyReportActivitiesText(report)}`,
+    `所要時間合計: ${minutesText(report.minutes)}`,
+    `進捗状況: ${report.progress || "-"}`,
+    `日付チェック: ${historyDateCheckText(report)}`
+  ];
+}
+
+function historyReportActivitiesText(report) {
+  return reportActivityMinuteEntries(report)
+    .filter(entry => entry.activityId !== "__none__")
+    .map(entry => `${historyReportActivityLabel(report, entry.activityId)}（${minutesText(entry.minutes)}）`)
+    .join("、") || "-";
+}
+
+function historyReportActivityLabel(report, activityId) {
+  return report.activityLabels?.[activityId] || activityLabel(report, activityId);
+}
+
+function historyDateCheckText(report) {
+  const check = report.dateCheck || {};
+  if (!check.selectedDate && !check.submittedDate) return "-";
+  const result = check.correct ? "一致" : "不一致";
+  return `${result}（投稿日 ${formatDate(check.selectedDate)} / 送信日 ${formatDate(check.submittedDate)}）`;
+}
+
+function historyActivityChangeLines(item) {
+  const before = historyActivitiesFromPayload(item.before);
+  const after = historyActivitiesFromPayload(item.after);
+  if (!before && !after) return historyFallbackChangeLines(item);
+  if (!before) return after.map(activity => `追加: ${activity.label}`);
+  if (!after) return before.map(activity => `削除: ${activity.label}`);
+
+  const beforeMap = new Map(before.map(activity => [activity.id, activity]));
+  const afterMap = new Map(after.map(activity => [activity.id, activity]));
+  const lines = [];
+  after.forEach(activity => {
+    const previous = beforeMap.get(activity.id);
+    if (!previous) {
+      lines.push(`追加: ${activity.label}`);
+      return;
+    }
+    const changes = [
+      historyFieldChangeLine("項目名", previous.label, activity.label),
+      historyFieldChangeLine("進捗の目安", previous.hint || "-", activity.hint || "-"),
+      historyFieldChangeLine("表示", previous.active ? "表示" : "非表示", activity.active ? "表示" : "非表示")
+    ].filter(Boolean);
+    if (changes.length) lines.push(`変更: ${previous.label}`, ...changes.map(line => `  ${line}`));
+  });
+  before.forEach(activity => {
+    if (!afterMap.has(activity.id)) lines.push(`削除: ${activity.label}`);
+  });
+  if (!lines.length && before.map(activity => activity.id).join(",") !== after.map(activity => activity.id).join(",")) {
+    lines.push("並び順が変更されました。");
+  }
+  return lines;
+}
+
+function historyActivitiesFromPayload(value) {
+  const activities = Array.isArray(value?.activities) ? value.activities : Array.isArray(value) ? value : null;
+  return activities ? activities.map(normalizeActivity).filter(activity => activity.label) : null;
+}
+
+function historyFieldChangeLine(label, before, after) {
+  const beforeText = String(before ?? "-");
+  const afterText = String(after ?? "-");
+  return beforeText === afterText ? "" : `${label}: ${beforeText} → ${afterText}`;
+}
+
+function historyFallbackChangeLines(item) {
+  return [
+    `変更前: ${historySimpleSummary(item.before)}`,
+    `変更後: ${historySimpleSummary(item.after)}`
+  ];
+}
+
+function historySimpleSummary(value) {
+  if (!value) return "なし";
+  if (value.label) return String(value.label);
+  if (value.name || value.date) return reportLabel(value);
+  if (Array.isArray(value.reports)) return `${value.reports.length}件`;
+  if (Array.isArray(value.activities)) return `${value.activities.length}項目`;
+  return "保存データあり";
 }
 
 async function restoreHistoryEntry(historyId) {
