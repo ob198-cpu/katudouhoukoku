@@ -722,9 +722,7 @@ function initAdminPage() {
     if (restoreButton) restoreHistoryEntry(restoreButton.dataset.restoreHistory);
   });
   $("#add-activity")?.addEventListener("click", addActivityEditorRow);
-  $("#save-activities")?.addEventListener("click", showActivitySaveConfirm);
-  $("#confirm-save-activities")?.addEventListener("click", saveActivityEditor);
-  $("#cancel-save-activities")?.addEventListener("click", hideActivitySaveConfirm);
+  $("#save-activities")?.addEventListener("click", saveActivityEditor);
   $("#reset-activities")?.addEventListener("click", resetActivities);
   $("#activity-editor")?.addEventListener("click", event => {
     const button = event.target.closest("[data-remove-activity]");
@@ -1371,20 +1369,6 @@ function renderActivityEditor() {
 
 function addActivityEditorRow() {
   $("#activity-editor")?.insertAdjacentHTML("beforeend", activityEditorRow({ active: true }));
-  hideActivitySaveConfirm();
-}
-
-function hideActivitySaveConfirm() {
-  $("#activity-save-confirm")?.classList.add("hidden");
-}
-
-function showActivitySaveConfirm() {
-  const activities = collectActivityEditor();
-  if (!activities.length) {
-    alert("項目を1つ以上入力してください。");
-    return;
-  }
-  $("#activity-save-confirm")?.classList.remove("hidden");
 }
 
 function removeActivityEditorRow(button) {
@@ -1411,9 +1395,9 @@ async function saveActivityEditor() {
   const activities = collectActivityEditor();
   if (!activities.length) {
     alert("項目を1つ以上入力してください。");
-    hideActivitySaveConfirm();
     return;
   }
+  if (!confirm("作業項目を保存します。よろしいですか？")) return;
   try {
     if (cloudEnabled()) {
       await cloudAdminAction("saveActivities", { activities });
