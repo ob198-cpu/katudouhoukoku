@@ -488,9 +488,9 @@ function initFormPage() {
     const submitButton = event.submitter || $("#report-form button[type='submit']");
     if (submitButton) submitButton.disabled = true;
     try {
-      await addReport(report);
+      const savedReport = await addReport(report);
       clearForm();
-      setMessage("#form-message", cloudEnabled() ? "送信しました。共有データに保存済みです。" : "送信しました。この端末内に保存しました。", "ok");
+      setMessage("#form-message", submissionSuccessMessage(savedReport), "ok");
     } catch (error) {
       setMessage("#form-message", "送信できませんでした: " + error.message, "error");
     } finally {
@@ -581,6 +581,16 @@ function confirmReportSubmission(report) {
     .filter(entry => entry.activityId !== "__none__")
     .map(entry => `・${activityLabel(report, entry.activityId)}: ${minutesText(entry.minutes)}`)
     .join("\n");
+  const today = todayKey();
+  const dateMismatchLines = report.date && report.date !== today
+    ? [
+        "",
+        "【日付確認】",
+        `選択した投稿日: ${formatDate(report.date)}`,
+        `実際の送信日: ${formatDate(today)}`,
+        "このまま送信すると、日付ミスとして管理画面に記録されます。"
+      ]
+    : [];
   return window.confirm([
     "この内容で送信します。よろしいですか？",
     `日付: ${formatDate(report.date)}`,
@@ -589,8 +599,16 @@ function confirmReportSubmission(report) {
     activities || "・未選択",
     `トータル時間: ${minutesText(report.minutes)}`,
     "進捗状況:",
-    report.progress
+    report.progress,
+    ...dateMismatchLines
   ].join("\n"));
+}
+
+function submissionSuccessMessage(savedReport) {
+  const check = reportDateCheck(savedReport);
+  const storageText = cloudEnabled() ? "共有データに保存済みです。" : "この端末内に保存しました。";
+  if (check.correct) return `送信しました。${storageText}`;
+  return `送信しました。選択投稿日（${formatDate(check.selectedDate)}）と実送信日（${formatDate(check.submittedDate)}）が違うため、日付ミスとして管理画面に記録しました。`;
 }
 
 function updateDuplicateWarning() {
@@ -777,12 +795,14 @@ function showAdminView(name) {
   $$("[data-admin-panel]").forEach(panel => panel.classList.toggle("active", panel.dataset.adminPanel === name));
   if (name === "summary") renderAdminSummary();
   if (name === "reports") renderReportTable();
+  if (name === "date-check") renderDateCheckView();
   if (name === "settings") renderActivityEditor();
 }
 
 function renderAdminAll() {
   renderAdminSummary();
   renderReportTable();
+  renderDateCheckView();
   renderActivityEditor();
   renderHistory();
 }
