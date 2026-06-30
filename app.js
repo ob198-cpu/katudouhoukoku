@@ -1533,7 +1533,7 @@ function removeActivityEditorRow(button) {
   const row = button.closest(".activity-editor-row");
   if (!row) return;
   const label = row.querySelector(".activity-label")?.value.trim() || "この作業項目";
-  if (!confirm(`${label}を削除します。項目を保存するまで確定されません。よろしいですか？`)) return;
+  if (!confirm(`「${label}」を削除候補にします。\n\nこの時点ではまだ削除は確定しません。\n削除を確定するには、この後「項目を保存」を押してください。\n\n続けますか？`)) return;
   row.remove();
 }
 
@@ -1555,7 +1555,7 @@ async function saveActivityEditor() {
     alert("項目を1つ以上入力してください。");
     return;
   }
-  if (!confirm("作業項目を保存します。よろしいですか？")) return;
+  if (!confirm(activitySaveConfirmMessage(activities))) return;
   try {
     if (cloudEnabled()) {
       await cloudAdminAction("saveActivities", { activities });
@@ -1572,6 +1572,14 @@ async function saveActivityEditor() {
   } catch (error) {
     alert("項目を保存できませんでした: " + error.message);
   }
+}
+
+function activitySaveConfirmMessage(nextActivities) {
+  const nextIds = new Set(nextActivities.map(activity => activity.id));
+  const deletedActivities = loadActivities().filter(activity => !nextIds.has(activity.id));
+  if (!deletedActivities.length) return "作業項目を保存します。よろしいですか？";
+  const deletedList = deletedActivities.map(activity => `・${activity.label}`).join("\n");
+  return `次の作業項目を削除して保存します。\n\n${deletedList}\n\n「OK」を押すと削除が確定します。よろしいですか？`;
 }
 
 async function resetActivities() {
