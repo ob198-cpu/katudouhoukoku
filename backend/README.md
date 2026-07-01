@@ -25,7 +25,7 @@ https://docs.google.com/spreadsheets/d/1QMvmHhMYTp1-eJ_DEZn6wlUyBtCTe5C4h4rn1N9w
 4. 管理者画面をクラウド運用する場合は、Apps Script エディタで次を一度だけ実行します。
 
 ```js
-setupInitialAdminPassword('任意の8文字以上の管理者パスワード')
+setupInitialAdminPassword('任意の4文字以上の管理者パスワード')
 ```
 
 現在のWebアプリURL:

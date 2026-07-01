@@ -5,11 +5,12 @@ const SHEETS = {
 };
 const SPREADSHEET_ID = '1QMvmHhMYTp1-eJ_DEZn6wlUyBtCTe5C4h4rn1N9wZHQ';
 const ADMIN_HASH_KEY = 'ADMIN_PASSWORD_SHA256';
+const ADMIN_PASSWORD_MIN_LENGTH = 4;
 const HISTORY_LIMIT = 1000;
 const DUPLICATE_REPORT_MESSAGE = '同じ日に同じ氏名で既に報告済みです。再入力はできません。修正が必要な場合は管理者に連絡してください。';
 
 function setupInitialAdminPassword(password) {
-  if (!password || String(password).length < 8) throw new Error('管理者パスワードは8文字以上で指定してください。');
+  if (!isValidAdminPassword_(password)) throw new Error('管理者パスワードは4文字以上で指定してください。');
   PropertiesService.getScriptProperties().setProperty(ADMIN_HASH_KEY, sha256(password));
   ensureAllSheets_();
 }
@@ -131,7 +132,7 @@ function restoreHistoryEntry_(historyId) {
 }
 
 function changeAdminPassword_(newPassword) {
-  if (!newPassword || String(newPassword).length < 8) throw new Error('新しい管理者パスワードは8文字以上にしてください。');
+  if (!isValidAdminPassword_(newPassword)) throw new Error('新しい管理者パスワードは4文字以上にしてください。');
   PropertiesService.getScriptProperties().setProperty(ADMIN_HASH_KEY, sha256(newPassword));
   return snapshot_();
 }
@@ -388,6 +389,10 @@ function assertAdmin_(password) {
   const stored = PropertiesService.getScriptProperties().getProperty(ADMIN_HASH_KEY);
   if (!stored) throw new Error('管理者パスワードが未設定です。Apps Scriptで setupInitialAdminPassword を実行してください。');
   if (sha256(password || '') !== stored) throw new Error('管理者パスワードが違います。');
+}
+
+function isValidAdminPassword_(password) {
+  return String(password || '').length >= ADMIN_PASSWORD_MIN_LENGTH;
 }
 
 function hasAdminPassword_() {
