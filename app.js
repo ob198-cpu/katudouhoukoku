@@ -585,10 +585,11 @@ function confirmReportSubmission(report) {
   const dateMismatchLines = report.date && report.date !== today
     ? [
         "",
-        "【日付確認】",
+        "【日付の確認】",
         `選択した投稿日: ${formatDate(report.date)}`,
-        `実際の送信日: ${formatDate(today)}`,
-        "このまま送信すると、日付ミスとして管理画面に記録されます。"
+        `送信日: ${formatDate(today)}`,
+        "投稿日と送信日が異なります。内容に問題なければ、このまま送信できます。",
+        "管理画面では確認用として表示されます。"
       ]
     : [];
   return window.confirm([
@@ -608,7 +609,7 @@ function submissionSuccessMessage(savedReport) {
   const check = reportDateCheck(savedReport);
   const storageText = cloudEnabled() ? "共有データに保存済みです。" : "この端末内に保存しました。";
   if (check.correct) return `送信しました。${storageText}`;
-  return `送信しました。選択投稿日（${formatDate(check.selectedDate)}）と実送信日（${formatDate(check.submittedDate)}）が違うため、日付ミスとして管理画面に記録しました。`;
+  return `送信しました。投稿日（${formatDate(check.selectedDate)}）と送信日（${formatDate(check.submittedDate)}）が異なるため、管理画面では確認用として表示されます。`;
 }
 
 function updateDuplicateWarning() {
@@ -1027,7 +1028,7 @@ function renderUserDateErrorTable(items) {
   container.innerHTML = `
     <div class="table-wrap">
       <table>
-        <thead><tr><th>利用者</th><th>報告件数</th><th>正</th><th>誤</th><th>ミス率</th></tr></thead>
+        <thead><tr><th>利用者</th><th>報告件数</th><th>一致</th><th>要確認</th><th>要確認率</th></tr></thead>
         <tbody>
           ${items.map(item => `
             <tr>
@@ -1046,8 +1047,8 @@ function renderUserDateErrorTable(items) {
 
 function dateStatusPill(correct) {
   return correct
-    ? '<span class="status-pill ok">正</span>'
-    : '<span class="status-pill error">誤</span>';
+    ? '<span class="status-pill ok">一致</span>'
+    : '<span class="status-pill error">要確認</span>';
 }
 
 function renderDateCheckTable(reports) {
@@ -1060,7 +1061,7 @@ function renderDateCheckTable(reports) {
   container.innerHTML = `
     <div class="table-wrap">
       <table class="date-check-table">
-        <thead><tr><th>送信日時</th><th>氏名</th><th>選択投稿日</th><th>実送信日</th><th>正誤</th><th>活動</th></tr></thead>
+        <thead><tr><th>送信日時</th><th>氏名</th><th>投稿日</th><th>送信日</th><th>確認結果</th><th>活動</th></tr></thead>
         <tbody>
           ${reports.map(report => {
             const check = reportDateCheck(report);
@@ -1125,7 +1126,7 @@ function renderReportTable() {
     <div class="table-wrap">
       <table class="report-table">
         <thead>
-          <tr><th>投稿日</th><th>実送信日</th><th>氏名</th><th>活動</th><th>時間</th><th>進捗</th><th>操作</th></tr>
+          <tr><th>投稿日</th><th>送信日</th><th>氏名</th><th>活動</th><th>時間</th><th>進捗</th><th>操作</th></tr>
         </thead>
         <tbody>
           ${reports.map(report => `
@@ -1362,12 +1363,12 @@ function historyReportChangeLines(item) {
     const after = normalizeReport(item.after);
     return [
       historyFieldChangeLine("投稿日", formatDate(before.date), formatDate(after.date)),
-      historyFieldChangeLine("実際の送信日", formatDate(before.submittedDate), formatDate(after.submittedDate)),
+      historyFieldChangeLine("送信日", formatDate(before.submittedDate), formatDate(after.submittedDate)),
       historyFieldChangeLine("氏名", before.name, after.name),
       historyFieldChangeLine("生産活動内容", historyReportActivitiesText(before), historyReportActivitiesText(after)),
       historyFieldChangeLine("所要時間合計", minutesText(before.minutes), minutesText(after.minutes)),
       historyFieldChangeLine("進捗状況", before.progress || "-", after.progress || "-"),
-      historyFieldChangeLine("日付チェック", historyDateCheckText(before), historyDateCheckText(after))
+      historyFieldChangeLine("日付確認", historyDateCheckText(before), historyDateCheckText(after))
     ].filter(Boolean);
   }
   if (item.after?.id) {
@@ -1382,12 +1383,12 @@ function historyReportChangeLines(item) {
 function historyReportSnapshotLines(report) {
   return [
     `投稿日: ${formatDate(report.date)}`,
-    `実際の送信日: ${formatDate(report.submittedDate)}`,
+    `送信日: ${formatDate(report.submittedDate)}`,
     `氏名: ${report.name || "-"}`,
     `生産活動内容: ${historyReportActivitiesText(report)}`,
     `所要時間合計: ${minutesText(report.minutes)}`,
     `進捗状況: ${report.progress || "-"}`,
-    `日付チェック: ${historyDateCheckText(report)}`
+    `日付確認: ${historyDateCheckText(report)}`
   ];
 }
 
@@ -1405,7 +1406,7 @@ function historyReportActivityLabel(report, activityId) {
 function historyDateCheckText(report) {
   const check = report.dateCheck || {};
   if (!check.selectedDate && !check.submittedDate) return "-";
-  const result = check.correct ? "一致" : "不一致";
+  const result = check.correct ? "一致" : "要確認";
   return `${result}（投稿日 ${formatDate(check.selectedDate)} / 送信日 ${formatDate(check.submittedDate)}）`;
 }
 
