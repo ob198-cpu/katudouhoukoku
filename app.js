@@ -1,9 +1,13 @@
-const REPORTS_KEY = "production_activity_reports_v2";
-const ACTIVITIES_KEY = "production_activity_items_v2";
-const ADMIN_PIN_KEY = "production_activity_admin_pin_v1";
-const ADMIN_SESSION_KEY = "production_activity_admin_unlocked";
-const ADMIN_PASSWORD_SESSION_KEY = "production_activity_admin_password";
-const HISTORY_KEY = "production_activity_history_v1";
+const CLOUD_SYSTEM_KEY = String(window.PRODUCTION_REPORT_SYSTEM_KEY || "");
+const SYSTEM_STORAGE_NAMESPACE = "production_activity:" +
+  (CLOUD_SYSTEM_KEY || String(location.pathname || "").split("/").filter(Boolean)[0] || "local").replace(/[^a-zA-Z0-9_-]/g, "_");
+const scopedStorageKey = suffix => `${SYSTEM_STORAGE_NAMESPACE}:${suffix}`;
+const REPORTS_KEY = scopedStorageKey("reports_v3");
+const ACTIVITIES_KEY = scopedStorageKey("items_v3");
+const ADMIN_PIN_KEY = scopedStorageKey("admin_pin_v2");
+const ADMIN_SESSION_KEY = scopedStorageKey("admin_unlocked_v2");
+const ADMIN_PASSWORD_SESSION_KEY = scopedStorageKey("admin_password_v2");
+const HISTORY_KEY = scopedStorageKey("history_v2");
 const DEFAULT_ADMIN_PIN = "";
 const LEGACY_DEFAULT_ADMIN_PIN = "0000";
 const CLOUD_API_URL = window.PRODUCTION_REPORT_API_URL || "";
@@ -160,7 +164,7 @@ function parseJson(key, fallback) {
 }
 
 function cloudEnabled() {
-  return /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(String(CLOUD_API_URL || "").trim());
+  return /^https:\/\/script\.google\.com\/macros\/s\/.+\/exec(?:\?.*)?$/.test(String(CLOUD_API_URL || "").trim());
 }
 
 function adminPassword() {
@@ -179,7 +183,7 @@ async function cloudRequest(action, payload = {}, password = "") {
   const response = await fetch(String(CLOUD_API_URL).trim(), {
     method: "POST",
     headers: { "Content-Type": "text/plain;charset=utf-8" },
-    body: JSON.stringify({ action, password, payload })
+    body: JSON.stringify({ action, password, payload, systemKey: CLOUD_SYSTEM_KEY })
   });
   const text = await response.text();
   let result;
@@ -206,7 +210,7 @@ async function refreshCloudPublic() {
   try {
     const data = await cloudRequest("publicConfig");
     applySnapshot(data);
-    setStorageStatus("クラウド保存中: 送信データは共有スプレッドシートへ保存されます。", "ok");
+    setStorageStatus("クラウド接続済み: 保存完了はサーバー確認後に表示します。", "ok");
     return true;
   } catch (error) {
     setStorageStatus("クラウド接続エラー: " + error.message, "error");
@@ -221,14 +225,14 @@ async function refreshCloudAdmin(password = adminPassword()) {
   }
   const data = await cloudRequest("adminSnapshot", {}, password);
   applySnapshot(data);
-  setStorageStatus("クラウド保存中: 管理者操作はサーバー側パスワードで保護されています。", "ok");
+  setStorageStatus("クラウド接続済み: 管理者操作はサーバー側パスワードで保護されています。", "ok");
   return true;
 }
 
 async function cloudAdminAction(action, payload = {}) {
   const data = await cloudRequest(action, payload, adminPassword());
   applySnapshot(data);
-  setStorageStatus("クラウド保存済み", "ok");
+  setStorageStatus("クラウド保存済み（サーバー確認済み）", "ok");
   return data;
 }
 
@@ -376,6 +380,7 @@ async function addReport(report) {
     reports.push(saved);
     saveReports(reports);
     if (Array.isArray(data.activities)) saveActivities(data.activities);
+    setStorageStatus("クラウド保存済み（サーバー確認済み）", "ok");
     return saved;
   }
   const reports = loadReports();
@@ -607,7 +612,7 @@ function confirmReportSubmission(report) {
 
 function submissionSuccessMessage(savedReport) {
   const check = reportDateCheck(savedReport);
-  const storageText = cloudEnabled() ? "共有データに保存済みです。" : "この端末内に保存しました。";
+  const storageText = cloudEnabled() ? "サーバーで保存完了を確認しました。" : "この端末内に保存しました。";
   if (check.correct) return `送信しました。${storageText}`;
   return `送信しました。投稿日（${formatDate(check.selectedDate)}）と送信日（${formatDate(check.submittedDate)}）が異なるため、管理画面では確認用として表示されます。`;
 }

@@ -21,7 +21,11 @@ function doGet() {
 }
 
 function doPost(e) {
+  const lock = LockService.getScriptLock();
+  let locked = false;
   try {
+    lock.waitLock(30000);
+    locked = true;
     ensureAllSheets_();
     const request = JSON.parse((e.postData && e.postData.contents) || '{}');
     const action = request.action || '';
@@ -31,6 +35,8 @@ function doPost(e) {
     return json_({ ok: true, data });
   } catch (error) {
     return json_({ ok: false, error: error.message || String(error) });
+  } finally {
+    if (locked) lock.releaseLock();
   }
 }
 
