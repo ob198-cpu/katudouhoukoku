@@ -12,6 +12,7 @@ const DEFAULT_ADMIN_PIN = "";
 const LEGACY_DEFAULT_ADMIN_PIN = "0000";
 const CLOUD_API_URL = window.PRODUCTION_REPORT_API_URL || "";
 const DUPLICATE_REPORT_MESSAGE = "同じ日に同じ氏名で既に報告済みです。再入力はできません。修正が必要な場合は管理者に連絡してください。";
+let cloudRevision = null;
 
 const DEFAULT_ACTIVITIES = [
   { id: "transcription", label: "文字起こし", hint: "納品したかどうか", active: true },
@@ -197,6 +198,7 @@ async function cloudRequest(action, payload = {}, password = "") {
 }
 
 function applySnapshot(snapshot = {}) {
+  if (Number.isFinite(Number(snapshot.revision))) cloudRevision = Number(snapshot.revision);
   if (Array.isArray(snapshot.activities)) saveActivities(snapshot.activities);
   if (Array.isArray(snapshot.reports)) saveReports(snapshot.reports);
   if (Array.isArray(snapshot.history)) saveHistory(snapshot.history);
@@ -230,10 +232,18 @@ async function refreshCloudAdmin(password = adminPassword()) {
 }
 
 async function cloudAdminAction(action, payload = {}) {
-  const data = await cloudRequest(action, payload, adminPassword());
-  applySnapshot(data);
-  setStorageStatus("クラウド保存済み（サーバー確認済み）", "ok");
-  return data;
+  try {
+    const data = await cloudRequest(action, { ...payload, expectedRevision: cloudRevision }, adminPassword());
+    applySnapshot(data);
+    setStorageStatus("クラウド保存済み（サーバー確認済み）", "ok");
+    return data;
+  } catch (error) {
+    if (String(error.message || error).includes("CONFLICT")) {
+      setStorageStatus("他の端末で更新されています。最新データを再取得しました。内容を確認して操作し直してください。", "error");
+      await refreshCloudAdmin();
+    }
+    throw error;
+  }
 }
 
 function normalizeActivity(activity, index = 0) {
@@ -375,6 +385,7 @@ async function addReport(report) {
   if (hasSameDayNameReport(normalized)) throw new Error(DUPLICATE_REPORT_MESSAGE);
   if (cloudEnabled()) {
     const data = await cloudRequest("submitReport", { report: normalized });
+    if (Number.isFinite(Number(data.revision))) cloudRevision = Number(data.revision);
     const saved = normalizeReport(data.report || normalized);
     const reports = loadReports().filter(item => item.id !== saved.id);
     reports.push(saved);
@@ -726,7 +737,6 @@ function initAdminPage() {
   $("#clear-report-filters")?.addEventListener("click", clearReportFilters);
   $("#cancel-report-edit")?.addEventListener("click", cancelReportEdit);
   $("#report-edit-form")?.addEventListener("submit", saveReportEdit);
-  $("#delete-all-reports")?.addEventListener("click", deleteAllReports);
   $("#report-table")?.addEventListener("click", async event => {
     const editButton = event.target.closest("[data-edit-report]");
     if (editButton) {
@@ -1520,23 +1530,6 @@ async function restoreHistoryEntry(historyId) {
   }
 
   alert("この履歴から復元できるデータがありません。");
-}
-
-async function deleteAllReports() {
-  if (!confirm("すべての報告を削除します。よろしいですか？")) return;
-  try {
-    if (cloudEnabled()) {
-      await cloudAdminAction("deleteAllReports");
-    } else {
-      const before = loadReports();
-      saveReports([]);
-      addHistory("全削除", "報告", { label: before.length + "件", reports: before }, null);
-    }
-    cancelReportEdit();
-    renderAdminAll();
-  } catch (error) {
-    alert("全削除できませんでした: " + error.message);
-  }
 }
 
 function activityEditorRow(activity = {}) {

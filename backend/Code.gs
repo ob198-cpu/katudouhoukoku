@@ -3,21 +3,61 @@ const SHEETS = {
   activities: { name: 'Activities', headers: ['id', 'json', 'updatedAt'] },
   history: { name: 'History', headers: ['id', 'json', 'at'] }
 };
-const SPREADSHEET_ID = '1QMvmHhMYTp1-eJ_DEZn6wlUyBtCTe5C4h4rn1N9wZHQ';
+const SPREADSHEET_ID = '1QBpO3tfO56cLLKE1-QzV-iSUUQdAVY9q48WEIAIstDU';
+const SPREADSHEET_IDS = Object.freeze({
+  'main': '1QMvmHhMYTp1-eJ_DEZn6wlUyBtCTe5C4h4rn1N9wZHQ',
+  '2': SPREADSHEET_ID,
+  '3': '1sRc8MRQIk3-832Ux-uWA2Tz8jTysD6g8Tj6dnlHgdlU',
+  '4': '1r1-J61Z2mcB3mR2_JSg6F_9cp5Y9RJgHQV9A5ArRVGA',
+  '5': '1mhqW4hYro4msMhjR5vz2lQ0gqQPGbnOeZ4xuDaLhEeA',
+  '6': '1XNwRXM9lApaxYL-2SNjX4-fVBUH8DtrCzv7cgpEnUMA',
+  '7': '1ft7xlS5Lhy0hkwz3irEjlmnK7C4R54paZaVHDthfUf8',
+  '8': '1IRgMRKBK8EprvmiIwgTo_48n4VJtWg_lnaqe66DxJjk',
+  '9': '1j9K1cDVC_q7ZezfTJRwhQqZq_kqBKbj-MJzwNitGVPU',
+  '10': '1bAmleQh5kfzSP32ggtSIiwpKV3kTOsgUO5U-_NyIR80'
+});
+let ACTIVE_SPREADSHEET_ID = SPREADSHEET_ID;
+let ACTIVE_SYSTEM_KEY = '2';
 const ADMIN_HASH_KEY = 'ADMIN_PASSWORD_SHA256';
+const ADMIN_ROTATION_KEY_PREFIX = 'ADMIN_PASSWORD_ROTATION_REQUIRED_';
+const REVISION_KEY_PREFIX = 'DATA_REVISION_';
 const ADMIN_PASSWORD_MIN_LENGTH = 4;
 const HISTORY_LIMIT = 1000;
 const DUPLICATE_REPORT_MESSAGE = '同じ日に同じ氏名で既に報告済みです。再入力はできません。修正が必要な場合は管理者に連絡してください。';
+const REVISION_REQUIRED_ACTIONS = Object.freeze({
+  updateReport: true,
+  deleteReport: true,
+  saveActivities: true,
+  restoreHistoryEntry: true
+});
 
 function setupInitialAdminPassword(password) {
   if (!isValidAdminPassword_(password)) throw new Error('管理者パスワードは4文字以上で指定してください。');
-  PropertiesService.getScriptProperties().setProperty(ADMIN_HASH_KEY, sha256(password));
+  selectSpreadsheet_('main');
+  PropertiesService.getScriptProperties().setProperty(adminHashKey_(), sha256(password));
+  PropertiesService.getScriptProperties().deleteProperty(adminRotationKey_());
   ensureAllSheets_();
 }
 
-function doGet() {
+function setupTenantAdminPassword(systemKey, password) {
+  if (!isValidAdminPassword_(password)) throw new Error('管理者パスワードは4文字以上で指定してください。');
+  selectSpreadsheet_(systemKey);
+  PropertiesService.getScriptProperties().setProperty(adminHashKey_(), sha256(password));
+  PropertiesService.getScriptProperties().deleteProperty(adminRotationKey_());
   ensureAllSheets_();
-  return json_({ ok: true, data: { status: 'ready', hasAdminPassword: hasAdminPassword_() } });
+}
+
+function doGet(e) {
+  const systemKey = selectSpreadsheet_(e && e.parameter && e.parameter.systemKey);
+  migrateLegacyAdminHashes_();
+  ensureAllSheets_();
+  return json_({ ok: true, data: {
+    status: 'ready',
+    systemKey: systemKey,
+    hasAdminPassword: hasAdminPassword_(),
+    passwordRotationRequired: passwordRotationRequired_(),
+    revision: currentRevision_()
+  } });
 }
 
 function doPost(e) {
@@ -26,8 +66,10 @@ function doPost(e) {
   try {
     lock.waitLock(30000);
     locked = true;
-    ensureAllSheets_();
     const request = JSON.parse((e.postData && e.postData.contents) || '{}');
+    selectSpreadsheet_((e && e.parameter && e.parameter.systemKey) || request.systemKey);
+    migrateLegacyAdminHashes_();
+    ensureAllSheets_();
     const action = request.action || '';
     const payload = request.payload || {};
     const password = request.password || '';
@@ -41,18 +83,25 @@ function doPost(e) {
 }
 
 function handleAction_(action, payload, password) {
-  if (action === 'publicConfig') return { activities: readActivities_() };
-  if (action === 'submitReport') return submitReport_(payload.report || {});
+  if (action === 'publicConfig') return { activities: readActivities_(), revision: currentRevision_() };
+  if (action === 'submitReport') {
+    const submitted = submitReport_(payload.report || {});
+    submitted.revision = bumpRevision_();
+    return submitted;
+  }
 
   assertAdmin_(password);
   if (action === 'adminSnapshot') return snapshot_();
-  if (action === 'updateReport') return updateReport_(payload.id, payload.report || {});
-  if (action === 'deleteReport') return deleteReport_(payload.id);
-  if (action === 'deleteAllReports') return deleteAllReports_();
-  if (action === 'saveActivities') return saveActivities_(payload.activities || [], payload.actionLabel || '編集');
-  if (action === 'restoreHistoryEntry') return restoreHistoryEntry_(payload.historyId);
-  if (action === 'changeAdminPassword') return changeAdminPassword_(payload.newPassword || '');
-  throw new Error('未対応の操作です: ' + action);
+  if (REVISION_REQUIRED_ACTIONS[action]) assertExpectedRevision_(payload.expectedRevision);
+  let result;
+  if (action === 'updateReport') result = updateReport_(payload.id, payload.report || {});
+  else if (action === 'deleteReport') result = deleteReport_(payload.id);
+  else if (action === 'saveActivities') result = saveActivities_(payload.activities || [], payload.actionLabel || '編集');
+  else if (action === 'restoreHistoryEntry') result = restoreHistoryEntry_(payload.historyId);
+  else if (action === 'changeAdminPassword') return changeAdminPassword_(payload.newPassword || '');
+  else throw new Error('未対応の操作です: ' + action);
+  result.revision = bumpRevision_();
+  return result;
 }
 
 function submitReport_(report) {
@@ -98,15 +147,8 @@ function updateReport_(id, report) {
 function deleteReport_(id) {
   const before = readReports_().find(row => row.id === id);
   if (!before) throw new Error('削除対象の報告が見つかりません。');
-  deleteJson_(SHEETS.reports, id);
   addHistory_('削除', '報告', before, null);
-  return snapshot_();
-}
-
-function deleteAllReports_() {
-  const before = readReports_();
-  writeJsonRows_(SHEETS.reports, []);
-  addHistory_('全削除', '報告', { label: before.length + '件', reports: before }, null);
+  deleteJson_(SHEETS.reports, id);
   return snapshot_();
 }
 
@@ -139,12 +181,19 @@ function restoreHistoryEntry_(historyId) {
 
 function changeAdminPassword_(newPassword) {
   if (!isValidAdminPassword_(newPassword)) throw new Error('新しい管理者パスワードは4文字以上にしてください。');
-  PropertiesService.getScriptProperties().setProperty(ADMIN_HASH_KEY, sha256(newPassword));
+  PropertiesService.getScriptProperties().setProperty(adminHashKey_(), sha256(newPassword));
+  PropertiesService.getScriptProperties().deleteProperty(adminRotationKey_());
   return snapshot_();
 }
 
 function snapshot_() {
-  return { reports: readReports_(), activities: readActivities_(), history: readHistory_() };
+  return {
+    reports: readReports_(),
+    activities: readActivities_(),
+    history: readHistory_(),
+    revision: currentRevision_(),
+    passwordRotationRequired: passwordRotationRequired_()
+  };
 }
 
 function ensureAllSheets_() {
@@ -167,7 +216,7 @@ function ensureSheet_(def) {
     return currentHeaders[index] !== header;
   });
   if (needsReadableHeader) {
-    writeJsonRowsToSheet_(sheet, def, readJsonRowsFromSheet_(sheet));
+    writeJsonRows_(def, readJsonRowsFromSheet_(sheet));
   } else {
     applySheetPresentation_(sheet, def);
   }
@@ -191,21 +240,53 @@ function readJsonRowsFromSheet_(sheet) {
 }
 
 function writeJsonRows_(def, rows) {
-  const sheet = targetSpreadsheet_().getSheetByName(def.name);
-  writeJsonRowsToSheet_(sheet, def, rows);
+  replaceSheetSafely_(def, rows || []);
 }
 
 function writeJsonRowsToSheet_(sheet, def, rows) {
+  if (sheet.getLastRow() > 0) throw new Error('安全保存先が空ではありません: ' + sheet.getName());
   if (sheet.getMaxColumns() < def.headers.length) {
     sheet.insertColumnsAfter(sheet.getMaxColumns(), def.headers.length - sheet.getMaxColumns());
   }
-  sheet.clearContents();
+  if (sheet.getMaxRows() < rows.length + 1) {
+    sheet.insertRowsAfter(sheet.getMaxRows(), rows.length + 1 - sheet.getMaxRows());
+  }
   sheet.getRange(1, 1, 1, def.headers.length).setValues([def.headers]);
   const values = rows.map(function(row) { return rowValuesForSheet_(def, row); });
   if (values.length) sheet.getRange(2, 1, values.length, def.headers.length).setValues(values);
   sheet.getRange(1, 1, 1, def.headers.length).setFontWeight('bold').setBackground('#0f766e').setFontColor('#ffffff');
   sheet.autoResizeColumns(1, def.headers.length);
   applySheetPresentation_(sheet, def);
+}
+
+function replaceSheetSafely_(def, rows) {
+  const ss = targetSpreadsheet_();
+  const active = ss.getSheetByName(def.name);
+  const token = Date.now() + '_' + Utilities.getUuid().slice(0, 8);
+  const stagingName = def.name + '__staging_' + token;
+  const oldName = def.name + '__old_' + token;
+  const staging = ss.insertSheet(stagingName);
+  writeJsonRowsToSheet_(staging, def, rows);
+  let oldRenamed = false;
+  let newActivated = false;
+  try {
+    if (active) {
+      active.setName(oldName);
+      oldRenamed = true;
+    }
+    staging.setName(def.name);
+    newActivated = true;
+    if (active) ss.deleteSheet(active);
+  } catch (error) {
+    const current = ss.getSheetByName(def.name);
+    if (oldRenamed && active) {
+      if (newActivated && current && current.getSheetId() !== active.getSheetId()) ss.deleteSheet(current);
+      active.setName(def.name);
+    }
+    const staged = ss.getSheetByName(stagingName);
+    if (staged) ss.deleteSheet(staged);
+    throw error;
+  }
 }
 
 function applySheetPresentation_(sheet, def) {
@@ -246,17 +327,43 @@ function reportRowValues_(row) {
 }
 
 function upsertJson_(def, id, row, updatedAt) {
-  const rows = readJsonRows_(def).filter(item => item.id !== id);
-  rows.push(row);
-  writeJsonRows_(def, rows.sort((a, b) => String(a.id).localeCompare(String(b.id))));
+  const sheet = targetSpreadsheet_().getSheetByName(def.name);
+  const idColumn = Math.max(1, def.headers.indexOf('id') + 1);
+  const lastRow = sheet.getLastRow();
+  let targetRow = 0;
+  if (lastRow >= 2) {
+    const ids = sheet.getRange(2, idColumn, lastRow - 1, 1).getDisplayValues();
+    const index = ids.findIndex(function(value) { return String(value[0]) === String(id); });
+    if (index >= 0) targetRow = index + 2;
+  }
+  const values = rowValuesForSheet_(def, row);
+  if (!targetRow) targetRow = lastRow + 1;
+  if (targetRow > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), targetRow - sheet.getMaxRows());
+  sheet.getRange(targetRow, 1, 1, def.headers.length).setValues([values]);
+  applySheetPresentation_(sheet, def);
 }
 
 function deleteJson_(def, id) {
-  writeJsonRows_(def, readJsonRows_(def).filter(item => item.id !== id));
+  const sheet = targetSpreadsheet_().getSheetByName(def.name);
+  const idColumn = Math.max(1, def.headers.indexOf('id') + 1);
+  if (!sheet || sheet.getLastRow() < 2) return;
+  const ids = sheet.getRange(2, idColumn, sheet.getLastRow() - 1, 1).getDisplayValues();
+  const index = ids.findIndex(function(value) { return String(value[0]) === String(id); });
+  if (index >= 0) sheet.deleteRow(index + 2);
 }
 
 function targetSpreadsheet_() {
-  return SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(SPREADSHEET_ID);
+  return SpreadsheetApp.openById(ACTIVE_SPREADSHEET_ID);
+}
+
+function selectSpreadsheet_(systemKey) {
+  const key = String(systemKey || '').trim();
+  if (!key) throw new Error('保存先システム番号が指定されていません。');
+  const spreadsheetId = SPREADSHEET_IDS[key];
+  if (!spreadsheetId) throw new Error('保存先システム番号が不正です: ' + key);
+  ACTIVE_SYSTEM_KEY = key;
+  ACTIVE_SPREADSHEET_ID = spreadsheetId;
+  return key;
 }
 
 function readReports_() { return readJsonRows_(SHEETS.reports).map(normalizeReport_).filter(row => row.date && row.name); }
@@ -275,8 +382,12 @@ function addHistory_(action, target, before, after) {
     before: clone_(before),
     after: clone_(after)
   };
-  const rows = [entry].concat(readHistory_()).slice(0, HISTORY_LIMIT);
-  writeJsonRows_(SHEETS.history, rows);
+  const sheet = targetSpreadsheet_().getSheetByName(SHEETS.history.name);
+  sheet.insertRowBefore(2);
+  sheet.getRange(2, 1, 1, SHEETS.history.headers.length).setValues([rowValuesForSheet_(SHEETS.history, entry)]);
+  if (sheet.getLastRow() > HISTORY_LIMIT + 1) {
+    sheet.deleteRows(HISTORY_LIMIT + 2, sheet.getLastRow() - HISTORY_LIMIT - 1);
+  }
 }
 
 function normalizeReport_(report) {
@@ -392,7 +503,7 @@ function formatDateTimeForSheet_(value) {
 }
 
 function assertAdmin_(password) {
-  const stored = PropertiesService.getScriptProperties().getProperty(ADMIN_HASH_KEY);
+  const stored = adminPasswordHash_();
   if (!stored) throw new Error('管理者パスワードが未設定です。Apps Scriptで setupInitialAdminPassword を実行してください。');
   if (sha256(password || '') !== stored) throw new Error('管理者パスワードが違います。');
 }
@@ -402,7 +513,62 @@ function isValidAdminPassword_(password) {
 }
 
 function hasAdminPassword_() {
-  return !!PropertiesService.getScriptProperties().getProperty(ADMIN_HASH_KEY);
+  return !!adminPasswordHash_();
+}
+
+function adminHashKey_() {
+  return ADMIN_HASH_KEY + '_' + ACTIVE_SYSTEM_KEY;
+}
+
+function adminPasswordHash_() {
+  return PropertiesService.getScriptProperties().getProperty(adminHashKey_());
+}
+
+function migrateLegacyAdminHashes_() {
+  const properties = PropertiesService.getScriptProperties();
+  const legacyHash = properties.getProperty(ADMIN_HASH_KEY);
+  if (!legacyHash) return;
+  Object.keys(SPREADSHEET_IDS).forEach(function(systemKey) {
+    const tenantKey = ADMIN_HASH_KEY + '_' + systemKey;
+    if (!properties.getProperty(tenantKey)) {
+      properties.setProperty(tenantKey, legacyHash);
+      properties.setProperty(ADMIN_ROTATION_KEY_PREFIX + systemKey, 'true');
+    }
+  });
+  properties.deleteProperty(ADMIN_HASH_KEY);
+}
+
+function adminRotationKey_() {
+  return ADMIN_ROTATION_KEY_PREFIX + ACTIVE_SYSTEM_KEY;
+}
+
+function passwordRotationRequired_() {
+  return PropertiesService.getScriptProperties().getProperty(adminRotationKey_()) === 'true';
+}
+
+function revisionKey_() {
+  return REVISION_KEY_PREFIX + ACTIVE_SYSTEM_KEY;
+}
+
+function currentRevision_() {
+  return Number(PropertiesService.getScriptProperties().getProperty(revisionKey_()) || 0);
+}
+
+function bumpRevision_() {
+  const next = currentRevision_() + 1;
+  PropertiesService.getScriptProperties().setProperty(revisionKey_(), String(next));
+  return next;
+}
+
+function assertExpectedRevision_(expectedRevision) {
+  if (expectedRevision === undefined || expectedRevision === null || expectedRevision === '') {
+    throw new Error('CONFLICT: 画面が古いため保存できません。再読み込みしてから操作してください。');
+  }
+  const expected = Number(expectedRevision);
+  const current = currentRevision_();
+  if (!Number.isFinite(expected) || expected !== current) {
+    throw new Error('CONFLICT: 他の端末で先に更新されています。再読み込みして内容を確認してください。');
+  }
 }
 
 function sha256(value) {
@@ -419,7 +585,7 @@ function normalizedNameKey_(name) {
 }
 
 function toDateKey_(date) {
-  return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+  return Utilities.formatDate(date, 'Asia/Tokyo', 'yyyy-MM-dd');
 }
 
 function dateKeyFromTimestamp_(value) {
