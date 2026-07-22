@@ -1589,7 +1589,6 @@ async function saveActivityEditor() {
       saveActivities(activities);
       addHistory("編集", "生産活動項目", { label: "変更前", activities: before }, { label: "変更後", activities: loadActivities() });
     }
-    hideActivitySaveConfirm();
     renderActivityEditor();
     renderAdminSummary();
     renderHistory();
