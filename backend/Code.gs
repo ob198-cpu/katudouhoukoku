@@ -124,7 +124,18 @@ function submitReport_(report) {
   if (duplicate) throw new Error(DUPLICATE_REPORT_MESSAGE);
   upsertJson_(SHEETS.reports, normalized.id, normalized, normalized.updatedAt);
   addHistory_('登録', '報告', null, normalized);
-  return { report: normalized, activities: readActivities_() };
+  const saved = readReports_().find(function(row) { return row.id === normalized.id; });
+  if (!saved ||
+      saved.date !== normalized.date ||
+      normalizedNameKey_(saved.name) !== normalizedNameKey_(normalized.name)) {
+    throw new Error('保存後の読戻し確認に失敗しました。入力は端末側から自動再送されます。');
+  }
+  return {
+    report: saved,
+    activities: readActivities_(),
+    confirmed: true,
+    systemKey: ACTIVE_SYSTEM_KEY
+  };
 }
 
 function updateReport_(id, report) {

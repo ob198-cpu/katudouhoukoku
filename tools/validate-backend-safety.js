@@ -11,6 +11,8 @@ if (clasp.scriptId !== expectedScriptId) failures.push('正本GASのscriptIdが�
 if (!source.includes('const SPREADSHEET_IDS')) failures.push('保存先ルーターがありません。');
 if (!source.includes('assertExpectedRevision_')) failures.push('競合検知がありません。');
 if (!source.includes('replaceSheetSafely_')) failures.push('世代付き安全保存がありません。');
+if (!source.includes('confirmed: true')) failures.push('報告保存後の読戻し確認がありません。');
+if (!source.includes('systemKey: ACTIVE_SYSTEM_KEY')) failures.push('保存先systemKeyの確認応答がありません。');
 if (source.includes('deleteAllReports')) failures.push('全削除APIが残っています。');
 if (/\.clearContents\s*\(|\.clear\s*\(/.test(source)) failures.push('稼働シートを全消去する処理が残っています。');
 if (/String\(systemKey\s*\|\|\s*['"](?:2|main)['"]/.test(source)) failures.push('systemKey欠落時の既定保存先が残っています。');

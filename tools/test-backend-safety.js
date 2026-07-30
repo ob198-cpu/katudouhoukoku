@@ -124,6 +124,22 @@ assert.equal(book.getSheetByName('Reports').getSheetId(), originalSheetId);
 assert.deepEqual(context.readReports_().map(item => item.id).sort(), ['r1', 'r2']);
 assert.equal(context.readReports_().find(item => item.id === 'r1').minutes, 99);
 
+const retryPayload = {
+  id: 'retry_same_id',
+  date: '2026-07-02',
+  name: '再送確認',
+  activityIds: ['transcription'],
+  activityMinutes: { transcription: 30 },
+  minutes: 30,
+  progress: '確認'
+};
+const firstSubmit = context.submitReport_(retryPayload);
+const secondSubmit = context.submitReport_(retryPayload);
+assert.equal(firstSubmit.confirmed, true);
+assert.equal(firstSubmit.systemKey, 'main');
+assert.equal(secondSubmit.confirmed, true);
+assert.equal(context.readReports_().filter(item => item.id === retryPayload.id).length, 1);
+
 const tenYears = Array.from({ length: 3650 }, (_, index) => context.normalizeReport_({
   id: 'report_' + index,
   date: '2030-01-01',
@@ -144,4 +160,4 @@ assert.equal(context.bumpRevision_(), 1);
 assert.throws(() => context.assertExpectedRevision_(0), /CONFLICT/);
 assert.throws(() => context.selectSpreadsheet_(''), /指定されていません/);
 
-console.log('row update, rollback, conflict, tenant routing, and 10-year volume checks passed');
+console.log('row update, idempotent retry, readback, rollback, conflict, tenant routing, and 10-year volume checks passed');
