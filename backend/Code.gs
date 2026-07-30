@@ -23,6 +23,7 @@ const ADMIN_ROTATION_KEY_PREFIX = 'ADMIN_PASSWORD_ROTATION_REQUIRED_';
 const REVISION_KEY_PREFIX = 'DATA_REVISION_';
 const ADMIN_PASSWORD_MIN_LENGTH = 4;
 const HISTORY_LIMIT = 1000;
+const BACKEND_BUILD_ID = 'production-multitenant-20260730-v1';
 const DUPLICATE_REPORT_MESSAGE = '同じ日に同じ氏名で既に報告済みです。再入力はできません。修正が必要な場合は管理者に連絡してください。';
 const REVISION_REQUIRED_ACTIONS = Object.freeze({
   updateReport: true,
@@ -56,7 +57,8 @@ function doGet(e) {
     systemKey: systemKey,
     hasAdminPassword: hasAdminPassword_(),
     passwordRotationRequired: passwordRotationRequired_(),
-    revision: currentRevision_()
+    revision: currentRevision_(),
+    backendBuildId: BACKEND_BUILD_ID
   } });
 }
 
@@ -74,6 +76,7 @@ function doPost(e) {
     const payload = request.payload || {};
     const password = request.password || '';
     const data = handleAction_(action, payload, password);
+    data.backendBuildId = BACKEND_BUILD_ID;
     return json_({ ok: true, data });
   } catch (error) {
     return json_({ ok: false, error: error.message || String(error) });
@@ -116,19 +119,18 @@ function submitReport_(report) {
     createdAt: submittedAt,
     updatedAt: submittedAt
   }));
-  const duplicate = readReports_().find(row =>
+  const reportsBeforeSave = readReports_();
+  const duplicate = reportsBeforeSave.find(row =>
     row.id !== normalized.id &&
     row.date === normalized.date &&
     normalizedNameKey_(row.name) === normalizedNameKey_(normalized.name)
   );
   if (duplicate) throw new Error(DUPLICATE_REPORT_MESSAGE);
   upsertJson_(SHEETS.reports, normalized.id, normalized, normalized.updatedAt);
-  addHistory_('登録', '報告', null, normalized);
   const saved = readReports_().find(function(row) { return row.id === normalized.id; });
-  if (!saved ||
-      saved.date !== normalized.date ||
-      normalizedNameKey_(saved.name) !== normalizedNameKey_(normalized.name)) {
-    throw new Error('保存後の読戻し確認に失敗しました。入力は端末側から自動再送されます。');
+  assertReportSaved_(saved, normalized);
+  if (!reportsBeforeSave.some(function(row) { return row.id === normalized.id; })) {
+    addHistory_('登録', '報告', null, normalized, 'history_register_' + normalized.id);
   }
   return {
     report: saved,
@@ -151,6 +153,8 @@ function updateReport_(id, report) {
     updatedAt: new Date().toISOString()
   }));
   upsertJson_(SHEETS.reports, updated.id, updated, updated.updatedAt);
+  const saved = readReports_().find(function(row) { return row.id === updated.id; });
+  assertReportSaved_(saved, updated);
   addHistory_('編集', '報告', before, updated);
   return snapshot_();
 }
@@ -158,8 +162,11 @@ function updateReport_(id, report) {
 function deleteReport_(id) {
   const before = readReports_().find(row => row.id === id);
   if (!before) throw new Error('削除対象の報告が見つかりません。');
-  addHistory_('削除', '報告', before, null);
   deleteJson_(SHEETS.reports, id);
+  if (readReports_().some(function(row) { return row.id === id; })) {
+    throw new Error('削除後の読戻し確認に失敗しました。');
+  }
+  addHistory_('削除', '報告', before, null);
   return snapshot_();
 }
 
@@ -167,6 +174,10 @@ function saveActivities_(activities, actionLabel) {
   const before = readActivities_();
   const normalized = normalizeActivities_(activities);
   writeJsonRows_(SHEETS.activities, normalized);
+  const saved = readActivities_();
+  if (stableStringify_(comparableActivities_(saved)) !== stableStringify_(comparableActivities_(normalized))) {
+    throw new Error('項目保存後の全項目読戻し確認に失敗しました。');
+  }
   addHistory_(actionLabel === '初期化' ? '初期化' : '編集', '生産活動項目', { label: '変更前', activities: before }, { label: '変更後', activities: normalized });
   return snapshot_();
 }
@@ -381,10 +392,11 @@ function readReports_() { return readJsonRows_(SHEETS.reports).map(normalizeRepo
 function readActivities_() { return normalizeActivities_(readJsonRows_(SHEETS.activities)); }
 function readHistory_() { return readJsonRows_(SHEETS.history).slice(0, HISTORY_LIMIT); }
 
-function addHistory_(action, target, before, after) {
+function addHistory_(action, target, before, after, stableId) {
+  if (stableId && readJsonRows_(SHEETS.history).some(function(item) { return item.id === stableId; })) return;
   const source = after || before || {};
   const entry = {
-    id: 'history_' + Date.now() + '_' + Utilities.getUuid().slice(0, 8),
+    id: stableId || 'history_' + Date.now() + '_' + Utilities.getUuid().slice(0, 8),
     at: new Date().toISOString(),
     action: action,
     target: target,
@@ -396,9 +408,6 @@ function addHistory_(action, target, before, after) {
   const sheet = targetSpreadsheet_().getSheetByName(SHEETS.history.name);
   sheet.insertRowBefore(2);
   sheet.getRange(2, 1, 1, SHEETS.history.headers.length).setValues([rowValuesForSheet_(SHEETS.history, entry)]);
-  if (sheet.getLastRow() > HISTORY_LIMIT + 1) {
-    sheet.deleteRows(HISTORY_LIMIT + 2, sheet.getLastRow() - HISTORY_LIMIT - 1);
-  }
 }
 
 function normalizeReport_(report) {
@@ -445,6 +454,59 @@ function normalizeActivities_(activities) {
     active: activity.active !== false,
     order: Number.isFinite(Number(activity.order)) ? Number(activity.order) : index
   })).filter(activity => activity.label).sort((a, b) => a.order - b.order).map((activity, index) => Object.assign({}, activity, { order: index }));
+}
+
+function comparableReport_(report) {
+  const normalized = normalizeReport_(report || {});
+  const activityIds = Array.from(new Set(normalized.activityIds)).sort();
+  const activityLabels = {};
+  const activityMinutes = {};
+  activityIds.forEach(function(activityId) {
+    activityLabels[activityId] = String(normalized.activityLabels && normalized.activityLabels[activityId] || '');
+    activityMinutes[activityId] = Math.max(0, Number(normalized.activityMinutes && normalized.activityMinutes[activityId] || 0));
+  });
+  return {
+    id: normalized.id,
+    date: normalized.date,
+    name: normalized.name,
+    activityIds: activityIds,
+    activityLabels: activityLabels,
+    activityMinutes: activityMinutes,
+    minutes: Math.max(0, Number(normalized.minutes || 0)),
+    progress: normalized.progress
+  };
+}
+
+function comparableActivities_(activities) {
+  return normalizeActivities_(activities).map(function(activity) {
+    return {
+      id: activity.id,
+      label: activity.label,
+      hint: activity.hint,
+      active: activity.active,
+      order: activity.order
+    };
+  });
+}
+
+function stableStringify_(value) {
+  function sortValue_(item) {
+    if (Array.isArray(item)) return item.map(sortValue_);
+    if (item && typeof item === 'object') {
+      return Object.keys(item).sort().reduce(function(result, key) {
+        result[key] = sortValue_(item[key]);
+        return result;
+      }, {});
+    }
+    return item;
+  }
+  return JSON.stringify(sortValue_(value));
+}
+
+function assertReportSaved_(saved, expected) {
+  if (!saved || stableStringify_(comparableReport_(saved)) !== stableStringify_(comparableReport_(expected))) {
+    throw new Error('保存後の全項目読戻し確認に失敗しました。入力は端末側から再送できます。');
+  }
 }
 
 function defaultActivities_() {

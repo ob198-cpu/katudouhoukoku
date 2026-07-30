@@ -12,7 +12,11 @@ const PENDING_REPORTS_KEY = scopedStorageKey("pending_reports_v1");
 const DEFAULT_ADMIN_PIN = "";
 const LEGACY_DEFAULT_ADMIN_PIN = "0000";
 const CLOUD_API_URL = window.PRODUCTION_REPORT_API_URL || "";
+const EXPECTED_BACKEND_BUILD_ID = "production-multitenant-20260730-v1";
 const DUPLICATE_REPORT_MESSAGE = "同じ日に同じ氏名で既に報告済みです。再入力はできません。修正が必要な場合は管理者に連絡してください。";
+const LOCAL_STORAGE_WARNING_BYTES = 3.5 * 1024 * 1024;
+const PENDING_RETRY_BASE_MS = 30000;
+const PENDING_RETRY_MAX_MS = 10 * 60 * 1000;
 let cloudRevision = null;
 let pendingReportFlushPromise = null;
 let pendingReportRetryTimer = null;
@@ -175,13 +179,22 @@ function loadPendingReports() {
       queuedAt: item.queuedAt || new Date().toISOString(),
       lastAttemptAt: item.lastAttemptAt || "",
       lastError: String(item.lastError || ""),
-      attempts: Math.max(0, Number(item.attempts || 0))
+      attempts: Math.max(0, Number(item.attempts || 0)),
+      status: item.status === "blocked" ? "blocked" : "pending",
+      nextAttemptAt: item.nextAttemptAt || ""
     }))
     : [];
 }
 
 function savePendingReports(pending) {
-  localStorage.setItem(PENDING_REPORTS_KEY, JSON.stringify(pending));
+  try {
+    localStorage.setItem(PENDING_REPORTS_KEY, JSON.stringify(pending));
+  } catch (error) {
+    setStorageStatus("端末の保存容量が不足しています。画面を閉じず、管理者へ連絡してください。", "error");
+    throw error;
+  }
+  renderPendingReportPanel();
+  checkLocalStorageCapacity();
 }
 
 function upsertLocalReport(report) {
@@ -200,7 +213,9 @@ function queuePendingReport(report) {
     queuedAt: new Date().toISOString(),
     lastAttemptAt: "",
     lastError: "",
-    attempts: 0
+    attempts: 0,
+    status: "pending",
+    nextAttemptAt: ""
   });
   savePendingReports(pending);
   return normalized;
@@ -210,9 +225,14 @@ function updatePendingReportFailure(id, error) {
   const pending = loadPendingReports();
   const item = pending.find(entry => entry.report.id === id);
   if (!item) return;
+  const permanent = isPermanentPendingError(error);
   item.lastAttemptAt = new Date().toISOString();
   item.lastError = String(error?.message || error || "保存に失敗しました。");
   item.attempts += 1;
+  item.status = permanent ? "blocked" : "pending";
+  item.nextAttemptAt = permanent
+    ? ""
+    : new Date(Date.now() + Math.min(PENDING_RETRY_MAX_MS, PENDING_RETRY_BASE_MS * (2 ** Math.min(item.attempts - 1, 5)))).toISOString();
   savePendingReports(pending);
 }
 
@@ -224,6 +244,43 @@ function mergePendingReportsIntoLocal() {
   loadPendingReports().forEach(item => upsertLocalReport(item.report));
 }
 
+function comparableReport(report) {
+  const normalized = normalizeReport(report);
+  const activityIds = [...new Set(normalized.activityIds)].sort();
+  const activityLabels = {};
+  const activityMinutes = {};
+  activityIds.forEach(activityId => {
+    activityLabels[activityId] = String(normalized.activityLabels?.[activityId] || "");
+    activityMinutes[activityId] = Math.max(0, Number(normalized.activityMinutes?.[activityId] || 0));
+  });
+  return {
+    id: normalized.id,
+    date: normalized.date,
+    name: normalized.name,
+    activityIds,
+    activityLabels,
+    activityMinutes,
+    minutes: Math.max(0, Number(normalized.minutes || 0)),
+    progress: normalized.progress
+  };
+}
+
+function isPermanentPendingError(error) {
+  const message = String(error?.message || error || "");
+  return [
+    DUPLICATE_REPORT_MESSAGE,
+    "保存先の確認に失敗",
+    "未対応の操作",
+    "日付を入力",
+    "氏名を入力",
+    "生産活動内容を1つ以上",
+    "作業時間を選択",
+    "進捗状況を入力",
+    "保存先プログラムの版が一致しません",
+    "保存先システム番号"
+  ].some(text => message.includes(text));
+}
+
 function verifySubmittedReport(data, expectedReport) {
   const saved = data?.report ? normalizeReport(data.report) : null;
   if (data?.confirmed !== true) throw new Error("サーバーから保存確認を取得できませんでした。");
@@ -233,8 +290,8 @@ function verifySubmittedReport(data, expectedReport) {
   if (!saved || saved.id !== expectedReport.id) {
     throw new Error("保存した受付IDをサーバーで確認できませんでした。");
   }
-  if (saved.date !== expectedReport.date || normalizedNameKey(saved.name) !== normalizedNameKey(expectedReport.name)) {
-    throw new Error("サーバーの読戻し内容が送信内容と一致しません。");
+  if (JSON.stringify(comparableReport(saved)) !== JSON.stringify(comparableReport(expectedReport))) {
+    throw new Error("サーバーの読戻し内容が送信した全項目と一致しません。未送信一覧から内容を確認してください。");
   }
   return saved;
 }
@@ -246,6 +303,9 @@ async function flushPendingReports(options = {}) {
     let savedCount = 0;
     const queue = loadPendingReports();
     for (const item of queue) {
+      if (options.onlyId && item.report.id !== options.onlyId) continue;
+      if (item.status === "blocked" && !options.force) continue;
+      if (!options.force && item.nextAttemptAt && Date.parse(item.nextAttemptAt) > Date.now()) continue;
       try {
         const data = await cloudRequest("submitReport", {
           report: item.report,
@@ -260,12 +320,17 @@ async function flushPendingReports(options = {}) {
       } catch (error) {
         updatePendingReportFailure(item.report.id, error);
         if (options.throwOnError) throw error;
-        break;
       }
     }
     const remaining = loadPendingReports().length;
     if (remaining) {
-      setStorageStatus(`未送信 ${remaining}件: 端末に保護済みです。接続回復後に自動再送します。`, "error");
+      const blocked = loadPendingReports().filter(item => item.status === "blocked").length;
+      setStorageStatus(
+        blocked
+          ? `要確認 ${blocked}件・未送信 ${remaining - blocked}件があります。下の一覧から修正または再送してください。`
+          : `未送信 ${remaining}件: 端末に保護済みです。接続回復後に自動再送します。`,
+        blocked ? "error" : "warn"
+      );
     } else if (savedCount) {
       setStorageStatus("クラウド保存済み（サーバー読戻し確認済み）", "ok");
     }
@@ -280,13 +345,123 @@ async function flushPendingReports(options = {}) {
 
 function startPendingReportRetry() {
   if (pendingReportRetryTimer) clearInterval(pendingReportRetryTimer);
+  renderPendingReportPanel();
+  checkLocalStorageCapacity();
   pendingReportRetryTimer = setInterval(() => {
     if (document.visibilityState === "visible" && navigator.onLine) flushPendingReports();
-  }, 15000);
+  }, PENDING_RETRY_BASE_MS);
   window.addEventListener("online", () => flushPendingReports());
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && navigator.onLine) flushPendingReports();
   });
+}
+
+function localStorageUsageBytes() {
+  let total = 0;
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index) || "";
+    const value = localStorage.getItem(key) || "";
+    total += (key.length + value.length) * 2;
+  }
+  return total;
+}
+
+function checkLocalStorageCapacity() {
+  const target = $("#capacity-warning");
+  if (!target) return;
+  const bytes = localStorageUsageBytes();
+  const isWarning = bytes >= LOCAL_STORAGE_WARNING_BYTES;
+  target.hidden = !isWarning;
+  if (isWarning) {
+    target.textContent = `このブラウザの保存使用量が約${(bytes / 1024 / 1024).toFixed(1)}MBです。未送信データを確認し、管理者へ連絡してください。`;
+  }
+}
+
+function pendingStatusLabel(item) {
+  if (item.status === "blocked") return "内容確認が必要";
+  if (item.nextAttemptAt && Date.parse(item.nextAttemptAt) > Date.now()) return "再送待ち";
+  return "未送信";
+}
+
+function renderPendingReportPanel() {
+  const panel = $("#pending-report-panel");
+  const list = $("#pending-report-list");
+  if (!panel || !list) return;
+  const pending = loadPendingReports();
+  panel.hidden = pending.length === 0;
+  if (!pending.length) {
+    list.innerHTML = "";
+    return;
+  }
+  list.innerHTML = pending.map(item => `
+    <article class="pending-report-item ${item.status === "blocked" ? "blocked" : ""}">
+      <div class="pending-report-summary">
+        <strong>${escapeHtml(item.report.date)} ${escapeHtml(item.report.name)}</strong>
+        <span class="pending-status">${escapeHtml(pendingStatusLabel(item))}</span>
+        <span>${escapeHtml(reportActivitySummaryText(item.report))}</span>
+        ${item.lastError ? `<small>${escapeHtml(item.lastError)}</small>` : ""}
+      </div>
+      <div class="pending-report-actions">
+        <button type="button" class="secondary-button" data-pending-action="restore" data-report-id="${escapeHtml(item.report.id)}">内容を修正</button>
+        <button type="button" class="primary-button" data-pending-action="retry" data-report-id="${escapeHtml(item.report.id)}">再送</button>
+        <button type="button" class="danger-button" data-pending-action="discard" data-report-id="${escapeHtml(item.report.id)}">破棄</button>
+      </div>
+    </article>
+  `).join("");
+}
+
+function restorePendingReportToForm(id) {
+  const item = loadPendingReports().find(entry => entry.report.id === id);
+  if (!item) return;
+  const report = item.report;
+  if ($("#report-date")) $("#report-date").value = report.date;
+  if ($("#report-name")) $("#report-name").value = report.name;
+  if ($("#report-progress")) $("#report-progress").value = report.progress;
+  renderFormActivities(report.activityIds);
+  report.activityIds.forEach(activityId => {
+    const select = findActivityMinutesSelect(activityId);
+    if (select) select.value = String(report.activityMinutes?.[activityId] || "");
+  });
+  handleActivitySelectionChange();
+  if ($("#report-form")) $("#report-form").dataset.pendingReportId = report.id;
+  setMessage("#form-message", "未送信の内容をフォームへ戻しました。修正後に「報告を送信」を押してください。", "error");
+  $("#report-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function handlePendingReportAction(event) {
+  const button = event.target.closest("[data-pending-action]");
+  if (!button) return;
+  const id = button.dataset.reportId || "";
+  const action = button.dataset.pendingAction;
+  if (action === "restore") {
+    restorePendingReportToForm(id);
+    return;
+  }
+  if (action === "discard") {
+    if (!window.confirm("この未送信データを破棄します。クラウドには保存されません。よろしいですか？")) return;
+    removePendingReport(id);
+    setStorageStatus("未送信データを破棄しました。", "warn");
+    return;
+  }
+  if (action === "retry") {
+    button.disabled = true;
+    try {
+      const pending = loadPendingReports();
+      const item = pending.find(entry => entry.report.id === id);
+      if (item) {
+        item.status = "pending";
+        item.nextAttemptAt = "";
+        item.lastError = "";
+        savePendingReports(pending);
+      }
+      await flushPendingReports({ onlyId: id, force: true, throwOnError: true });
+    } catch (error) {
+      setStorageStatus("再送できませんでした: " + error.message, "error");
+    } finally {
+      button.disabled = false;
+      renderPendingReportPanel();
+    }
+  }
 }
 
 function cloudEnabled() {
@@ -319,7 +494,11 @@ async function cloudRequest(action, payload = {}, password = "") {
     throw new Error("クラウド保存先がJSONを返していません。Apps Scriptの初回承認・公開設定を確認してください。");
   }
   if (!response.ok || !result.ok) throw new Error(result.error || "クラウド保存に失敗しました。");
-  return result.data || {};
+  const data = result.data || {};
+  if (data.backendBuildId !== EXPECTED_BACKEND_BUILD_ID) {
+    throw new Error("保存先プログラムの版が一致しません。誤った保存先への書込みを停止しました。");
+  }
+  return data;
 }
 
 function applySnapshot(snapshot = {}) {
@@ -512,7 +691,7 @@ async function addReport(report) {
   if (cloudEnabled()) {
     const queued = queuePendingReport(normalized);
     setStorageStatus("端末に退避済み: サーバーへ保存しています。", "warn");
-    await flushPendingReports({ throwOnError: true });
+    await flushPendingReports({ onlyId: queued.id, force: true, throwOnError: true });
     return loadReports().find(item => item.id === queued.id) || queued;
   }
   const reports = loadReports();
@@ -606,6 +785,7 @@ function initFormPage() {
   initReportDateInput();
   updateTotalMinutes();
   renderFormActivities();
+  $("#pending-report-list")?.addEventListener("click", handlePendingReportAction);
   refreshCloudPublic().then(async () => {
     renderFormActivities();
     await flushPendingReports();
@@ -633,10 +813,12 @@ function initFormPage() {
       clearForm();
       setMessage("#form-message", submissionSuccessMessage(savedReport), "ok");
     } catch (error) {
-      const pending = loadPendingReports().some(item => item.report.id === report.id);
-      if (pending) {
+      const pending = loadPendingReports().find(item => item.report.id === report.id);
+      if (pending && pending.status !== "blocked") {
         clearForm();
         setMessage("#form-message", "端末には保護しましたが、サーバー保存を確認できませんでした。接続回復後に自動再送します。", "error");
+      } else if (pending) {
+        setMessage("#form-message", "保存できない内容があります。入力内容を残しています。未送信一覧のエラーを確認してください。", "error");
       } else {
         setMessage("#form-message", "送信できませんでした: " + error.message, "error");
       }
@@ -782,6 +964,7 @@ function initReportDateInput() {
 
 function collectFormReport() {
   const activityIds = $$('[name="activity"]:checked').map(input => input.value);
+  const pendingReportId = $("#report-form")?.dataset.pendingReportId || "";
   const activityMap = new Map(loadActivities().map(activity => [activity.id, activity]));
   const activityLabels = {};
   activityIds.forEach(activityId => {
@@ -789,6 +972,7 @@ function collectFormReport() {
   });
   const activityMinutes = collectActivityMinutes(activityIds);
   return normalizeReport({
+    id: pendingReportId || undefined,
     date: $("#report-date")?.value || "",
     name: $("#report-name")?.value.trim() || "",
     activityIds,
@@ -804,7 +988,7 @@ function collectFormReport() {
 function validateReport(report, options = {}) {
   if (!report.date) return "日付を入力してください。";
   if (!report.name) return "氏名を入力してください。";
-  if (options.preventDuplicate && hasSameDayNameReport(report)) return DUPLICATE_REPORT_MESSAGE;
+  if (options.preventDuplicate && hasSameDayNameReport(report, report.id)) return DUPLICATE_REPORT_MESSAGE;
   if (!report.activityIds.length) return "生産活動内容を1つ以上選択してください。";
   if (options.requireActivityMinutes) {
     const missingTime = report.activityIds.some(activityId => !Number(report.activityMinutes?.[activityId] || 0));
@@ -817,6 +1001,7 @@ function validateReport(report, options = {}) {
 
 function clearForm() {
   $("#report-form")?.reset();
+  if ($("#report-form")) delete $("#report-form").dataset.pendingReportId;
   initReportDateInput();
   renderFormActivities([]);
   updateTotalMinutes();

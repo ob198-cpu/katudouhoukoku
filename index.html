@@ -14,7 +14,20 @@
     </div>
   </header>
 
+  <div id="storage-status" class="storage-status warn" role="status" aria-live="polite">保存先を確認しています。</div>
+  <div id="capacity-warning" class="capacity-warning" role="alert" hidden></div>
+
   <main class="form-shell">
+    <section id="pending-report-panel" class="pending-report-panel" aria-labelledby="pending-report-title" hidden>
+      <div class="panel-head">
+        <div>
+          <h2 id="pending-report-title">未送信・要確認データ</h2>
+          <p>クラウド保存が完了していない報告です。内容を修正して再送するか、不要な場合だけ破棄してください。</p>
+        </div>
+      </div>
+      <div id="pending-report-list" class="pending-report-list"></div>
+    </section>
+
     <section class="form-panel" aria-labelledby="report-title">
       <div class="panel-head">
         <div>
@@ -64,6 +77,6 @@
   </main>
 
   <script src="config.js?v=20260706-soft-date-check"></script>
-  <script src="app.js?v=20260722-activity-save-fix"></script>
+  <script src="app.js?v=20260730-save-integrity"></script>
 </body>
 </html>

@@ -72,7 +72,8 @@ function createContext() {
       addReport,
       flushPendingReports,
       loadPendingReports,
-      loadReports
+      loadReports,
+      verifySubmittedReport
     };
   `, context);
   return context;
@@ -115,12 +116,13 @@ function response(data) {
     return response({
       confirmed: true,
       systemKey: "4",
+      backendBuildId: "production-multitenant-20260730-v1",
       revision: 2,
       report: request.payload.report,
       activities: []
     });
   };
-  const result = await api.flushPendingReports({ throwOnError: true });
+  const result = await api.flushPendingReports({ force: true, throwOnError: true });
   assert.strictEqual(sentId, "report_retry_1", "再送でも同じ受付IDを使うこと");
   assert.strictEqual(result.saved, 1);
   assert.strictEqual(result.pending, 0);
@@ -137,6 +139,7 @@ function response(data) {
     return response({
       confirmed: true,
       systemKey: "5",
+      backendBuildId: "production-multitenant-20260730-v1",
       revision: 3,
       report: request.payload.report,
       activities: []
@@ -145,7 +148,63 @@ function response(data) {
   await assert.rejects(() => api.addReport(wrongTarget), /保存先の確認に失敗/);
   assert.strictEqual(api.loadPendingReports().length, 1, "保存先不一致では未送信キューを消さないこと");
 
-  console.log("pending queue, idempotent retry, readback, and tenant checks passed");
+  const partialReadback = {
+    ...report,
+    id: "report_partial_readback",
+    name: "全項目確認テスト",
+    progress: "完了"
+  };
+  context.fetch = async (_url, options) => {
+    const request = JSON.parse(options.body);
+    return response({
+      confirmed: true,
+      systemKey: "4",
+      backendBuildId: "production-multitenant-20260730-v1",
+      revision: 4,
+      report: { ...request.payload.report, progress: "" },
+      activities: []
+    });
+  };
+  await assert.rejects(() => api.addReport(partialReadback), /全項目と一致しません/);
+  assert(
+    api.loadPendingReports().some(item => item.report.id === partialReadback.id),
+    "読戻しで1項目でも欠落した報告は未送信キューに残ること"
+  );
+
+  const independentReport = {
+    ...report,
+    id: "report_independent",
+    name: "個別送信テスト"
+  };
+  const sentIds = [];
+  context.fetch = async (_url, options) => {
+    const request = JSON.parse(options.body);
+    sentIds.push(request.payload.report.id);
+    return response({
+      confirmed: true,
+      systemKey: "4",
+      backendBuildId: "production-multitenant-20260730-v1",
+      revision: 5,
+      report: request.payload.report,
+      activities: []
+    });
+  };
+  await api.addReport(independentReport);
+  assert.deepStrictEqual(
+    sentIds,
+    [independentReport.id],
+    "新しい報告の送信時は、その受付IDだけを送信して過去の未送信に巻き込まれないこと"
+  );
+  assert(
+    api.loadPendingReports().some(item => item.report.id === wrongTarget.id),
+    "過去の要確認データは勝手に破棄しないこと"
+  );
+  assert(
+    api.loadPendingReports().some(item => item.report.id === partialReadback.id),
+    "過去の読戻し不一致データは勝手に破棄しないこと"
+  );
+
+  console.log("pending queue, isolated retry, full readback, and tenant checks passed");
 })().catch(error => {
   console.error(error);
   process.exit(1);

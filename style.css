@@ -92,6 +92,88 @@ button {
   background: #fdecea;
 }
 
+.capacity-warning {
+  border-bottom: 1px solid #f0c36d;
+  padding: 10px 28px;
+  color: #7a4b00;
+  background: #fff4db;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.pending-report-panel {
+  margin-bottom: 18px;
+  border: 2px solid #d97b00;
+  border-radius: 8px;
+  padding: 18px;
+  background: #fffaf2;
+}
+
+.pending-report-list {
+  display: grid;
+  gap: 10px;
+}
+
+.pending-report-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid #e6c58e;
+  border-radius: 6px;
+  padding: 12px;
+  background: #fff;
+}
+
+.pending-report-item.blocked {
+  border-color: #dc7770;
+  background: #fff7f6;
+}
+
+.pending-report-summary {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+
+.pending-report-summary strong,
+.pending-report-summary span {
+  white-space: nowrap;
+}
+
+.pending-report-summary small {
+  width: 100%;
+  color: var(--danger);
+}
+
+.pending-status {
+  border-radius: 999px;
+  padding: 2px 9px;
+  color: #7a4b00;
+  background: #fff0c7;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.pending-report-item.blocked .pending-status {
+  color: #8f1d13;
+  background: #fde3e1;
+}
+
+.pending-report-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.pending-report-actions button {
+  min-height: 40px;
+  padding: 8px 14px;
+  white-space: nowrap;
+}
+
 .admin-link {
   display: inline-flex;
   align-items: center;
@@ -772,6 +854,13 @@ tr:last-child td {
 }
 
 @media (max-width: 980px) {
+  .pending-report-item {
+    grid-template-columns: 1fr;
+  }
+
+  .pending-report-actions {
+    justify-content: flex-start;
+  }
   .site-header,
   .panel-head,
   .card-head {
