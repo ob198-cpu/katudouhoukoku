@@ -27,7 +27,7 @@ const ADMIN_ROTATION_KEY_PREFIX = 'ADMIN_PASSWORD_ROTATION_REQUIRED_';
 const REVISION_KEY_PREFIX = 'DATA_REVISION_';
 const ADMIN_PASSWORD_MIN_LENGTH = 4;
 const HISTORY_LIMIT = 1000;
-const BACKEND_BUILD_ID = 'production-multitenant-20260827-v2';
+const BACKEND_BUILD_ID = 'production-multitenant-20260730-v1';
 const DUPLICATE_REPORT_MESSAGE = '同じ日に同じ氏名で既に報告済みです。再入力はできません。修正が必要な場合は管理者に連絡してください。';
 const REVISION_REQUIRED_ACTIONS = Object.freeze({
   updateReport: true,

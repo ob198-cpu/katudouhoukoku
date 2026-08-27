@@ -360,6 +360,7 @@ function localStorageUsageBytes() {
   let total = 0;
   for (let index = 0; index < localStorage.length; index += 1) {
     const key = localStorage.key(index) || "";
+    if (!key.startsWith(`${SYSTEM_STORAGE_NAMESPACE}:`)) continue;
     const value = localStorage.getItem(key) || "";
     total += (key.length + value.length) * 2;
   }
@@ -370,10 +371,11 @@ function checkLocalStorageCapacity() {
   const target = $("#capacity-warning");
   if (!target) return;
   const bytes = localStorageUsageBytes();
-  const isWarning = bytes >= LOCAL_STORAGE_WARNING_BYTES;
+  const pendingCount = loadPendingReports().length;
+  const isWarning = pendingCount > 0 && bytes >= LOCAL_STORAGE_WARNING_BYTES;
   target.hidden = !isWarning;
   if (isWarning) {
-    target.textContent = `このブラウザの保存使用量が約${(bytes / 1024 / 1024).toFixed(1)}MBです。未送信データを確認し、管理者へ連絡してください。`;
+    target.textContent = `未送信データの保存使用量が約${(bytes / 1024 / 1024).toFixed(1)}MBです。未送信一覧を確認し、管理者へ連絡してください。`;
   }
 }
 
