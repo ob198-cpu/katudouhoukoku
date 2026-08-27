@@ -18,6 +18,7 @@ const LOCAL_STORAGE_WARNING_BYTES = 3.5 * 1024 * 1024;
 const PENDING_RETRY_BASE_MS = 30000;
 const PENDING_RETRY_MAX_MS = 10 * 60 * 1000;
 let cloudRevision = null;
+let cloudConnectionReady = false;
 let pendingReportFlushPromise = null;
 let pendingReportRetryTimer = null;
 
@@ -347,12 +348,17 @@ function startPendingReportRetry() {
   if (pendingReportRetryTimer) clearInterval(pendingReportRetryTimer);
   renderPendingReportPanel();
   checkLocalStorageCapacity();
-  pendingReportRetryTimer = setInterval(() => {
-    if (document.visibilityState === "visible" && navigator.onLine) flushPendingReports();
+  pendingReportRetryTimer = setInterval(async () => {
+    if (document.visibilityState !== "visible" || !navigator.onLine) return;
+    if (!cloudConnectionReady) await refreshCloudPublic();
+    await flushPendingReports();
   }, PENDING_RETRY_BASE_MS);
-  window.addEventListener("online", () => flushPendingReports());
+  window.addEventListener("online", async () => {
+    await refreshCloudPublic();
+    await flushPendingReports();
+  });
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && navigator.onLine) flushPendingReports();
+    if (document.visibilityState === "visible" && navigator.onLine && !cloudConnectionReady) refreshCloudPublic();
   });
 }
 
@@ -498,7 +504,7 @@ async function cloudRequest(action, payload = {}, password = "") {
   if (!response.ok || !result.ok) throw new Error(result.error || "クラウド保存に失敗しました。");
   const data = result.data || {};
   if (data.backendBuildId !== EXPECTED_BACKEND_BUILD_ID) {
-    throw new Error("保存先プログラムの版が一致しません。誤った保存先への書込みを停止しました。");
+    throw new Error("保存先を更新しています。安全のため送信を一時停止しています。画面を再読み込みしてください。");
   }
   return data;
 }
@@ -513,15 +519,18 @@ function applySnapshot(snapshot = {}) {
 
 async function refreshCloudPublic() {
   if (!cloudEnabled()) {
+    cloudConnectionReady = false;
     setStorageStatus("ローカル保存中: この端末のブラウザ内だけに保存されます。クラウド保存URLを設定してください。", "warn");
     return false;
   }
   try {
     const data = await cloudRequest("publicConfig");
     applySnapshot(data);
+    cloudConnectionReady = true;
     setStorageStatus("クラウド接続済み: 保存完了はサーバー確認後に表示します。", "ok");
     return true;
   } catch (error) {
+    cloudConnectionReady = false;
     setStorageStatus("クラウド接続エラー: " + error.message, "error");
     return false;
   }
