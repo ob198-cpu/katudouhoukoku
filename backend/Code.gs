@@ -14,16 +14,20 @@ const SPREADSHEET_IDS = Object.freeze({
   '7': '1ft7xlS5Lhy0hkwz3irEjlmnK7C4R54paZaVHDthfUf8',
   '8': '1IRgMRKBK8EprvmiIwgTo_48n4VJtWg_lnaqe66DxJjk',
   '9': '1j9K1cDVC_q7ZezfTJRwhQqZq_kqBKbj-MJzwNitGVPU',
-  '10': '1bAmleQh5kfzSP32ggtSIiwpKV3kTOsgUO5U-_NyIR80'
+  '10': '1bAmleQh5kfzSP32ggtSIiwpKV3kTOsgUO5U-_NyIR80',
+  '11': '1DNYH2i_Fc4zpJnBot9Fi6wHQolELFlwGGW9tiABwH78'
 });
 let ACTIVE_SPREADSHEET_ID = SPREADSHEET_ID;
 let ACTIVE_SYSTEM_KEY = '2';
 const ADMIN_HASH_KEY = 'ADMIN_PASSWORD_SHA256';
+const INITIAL_ADMIN_PASSWORD_HASHES = Object.freeze({
+  '11': '9af15b336e6a9619928537df30b2e6a2376569fcf9d7e773eccede65606529a0'
+});
 const ADMIN_ROTATION_KEY_PREFIX = 'ADMIN_PASSWORD_ROTATION_REQUIRED_';
 const REVISION_KEY_PREFIX = 'DATA_REVISION_';
 const ADMIN_PASSWORD_MIN_LENGTH = 4;
 const HISTORY_LIMIT = 1000;
-const BACKEND_BUILD_ID = 'production-multitenant-20260730-v1';
+const BACKEND_BUILD_ID = 'production-multitenant-20260827-v2';
 const DUPLICATE_REPORT_MESSAGE = '同じ日に同じ氏名で既に報告済みです。再入力はできません。修正が必要な場合は管理者に連絡してください。';
 const REVISION_REQUIRED_ACTIONS = Object.freeze({
   updateReport: true,
@@ -51,6 +55,7 @@ function setupTenantAdminPassword(systemKey, password) {
 function doGet(e) {
   const systemKey = selectSpreadsheet_(e && e.parameter && e.parameter.systemKey);
   migrateLegacyAdminHashes_();
+  initializeConfiguredAdminPassword_();
   ensureAllSheets_();
   return json_({ ok: true, data: {
     status: 'ready',
@@ -71,6 +76,7 @@ function doPost(e) {
     const request = JSON.parse((e.postData && e.postData.contents) || '{}');
     selectSpreadsheet_((e && e.parameter && e.parameter.systemKey) || request.systemKey);
     migrateLegacyAdminHashes_();
+    initializeConfiguredAdminPassword_();
     ensureAllSheets_();
     const action = request.action || '';
     const payload = request.payload || {};
@@ -609,6 +615,16 @@ function migrateLegacyAdminHashes_() {
     }
   });
   properties.deleteProperty(ADMIN_HASH_KEY);
+}
+
+function initializeConfiguredAdminPassword_() {
+  const properties = PropertiesService.getScriptProperties();
+  const key = adminHashKey_();
+  const initialHash = INITIAL_ADMIN_PASSWORD_HASHES[ACTIVE_SYSTEM_KEY];
+  if (initialHash && !properties.getProperty(key)) {
+    properties.setProperty(key, initialHash);
+    properties.deleteProperty(adminRotationKey_());
+  }
 }
 
 function adminRotationKey_() {
