@@ -155,6 +155,37 @@ assert.equal(context.readReports_().length, 3650);
 assert.equal([...book.sheets.keys()].some(name => name.includes('__old_') || name.includes('__staging_')), false);
 
 assert.equal(context.currentRevision_(), 0);
+// A scoped admin response includes both boundary dates and never returns rows
+// outside the selected range, even after editing a report across a month end.
+const day = value => context.normalizeReport_({ ...r1, id: value, date: value });
+const month = { start: '2026-11-01', end: '2026-11-30' };
+const samples = ['2026-10-31','2026-11-01','2026-11-30','2026-12-01'].map(day);
+context.writeJsonRows_(reportDef, samples);
+for (const bad of [null, {}, { ...month, start: '' }, { ...month, end: '2026-11-31' }, { ...month, end: '2026-10-31' }]) {
+  assert.throws(() => context.adminRange_(bad), /開始日/);
+}
+const scoped = () => context.snapshot_(context.adminRange_(month));
+assert.deepEqual(Array.from(scoped().reports, row => row.date), ['2026-11-01', '2026-11-30']);
+assert.equal(scoped().history.length, 0);
+assert.equal(context.snapshot_().reports.length, 4);
+assert.equal(context.snapshot_(context.adminRange_({ start: '2024-02-29', end: '2024-02-29' })).reports.length, 0);
+const spanning = context.snapshot_(context.adminRange_({ start: '2026-10-26', end: '2026-11-01' }));
+assert.deepEqual(Array.from(spanning.reports, row => row.date), ['2026-10-31', '2026-11-01']);
+const moved = context.updateReport_('2026-11-01', { date: '2026-10-30' }, month);
+assert.deepEqual(Array.from(moved.reports, row => row.date), ['2026-11-30']);
+assert.ok(context.readReports_().some(row => row.date === '2026-10-30'));
+const openHistory = context.snapshot_(context.adminRange_({ ...month, includeHistory: true }));
+assert.ok(openHistory.history.length && openHistory.history.length <= 100);
+assert.equal(context.restoreHistoryEntry_(openHistory.history[0].id, month).reports.length, 2);
+context.Utilities.DigestAlgorithm = { SHA_256: 'sha256' };
+context.Utilities.Charset = { UTF_8: 'utf8' };
+const candidate = context.readReports_().find(row => row.id === '2026-10-31');
+const digest = row => context.sha256(context.stableStringify_(row));
+const legacy = context.confirmedLegacyCopies_({ kind: 'reports', items: [
+  { id: candidate.id, hash: digest(candidate) }, { id: '2026-12-01', hash: digest(candidate) }
+] });
+assert.deepEqual(Array.from(legacy.confirmed), [candidate.id]);
+assert.ok(!('reports' in legacy));
 context.assertExpectedRevision_(0);
 assert.equal(context.bumpRevision_(), 1);
 assert.throws(() => context.assertExpectedRevision_(0), /CONFLICT/);

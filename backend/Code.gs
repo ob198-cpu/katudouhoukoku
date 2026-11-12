@@ -31,6 +31,7 @@ const BACKEND_BUILD_ID = 'production-multitenant-20260730-v1';
 const DUPLICATE_REPORT_MESSAGE = '同じ日に同じ氏名で既に報告済みです。再入力はできません。修正が必要な場合は管理者に連絡してください。';
 const REVISION_REQUIRED_ACTIONS = Object.freeze({
   updateReport: true,
+  markDateCheckReviewed: true,
   deleteReport: true,
   saveActivities: true,
   restoreHistoryEntry: true
@@ -100,14 +101,17 @@ function handleAction_(action, payload, password) {
   }
 
   assertAdmin_(password);
-  if (action === 'adminSnapshot') return snapshot_();
+  if (action === 'adminLegacyMatches') return confirmedLegacyCopies_(payload);
+  const range = adminRange_(payload.range);
+  if (action === 'adminSnapshot') return snapshot_(range);
   if (REVISION_REQUIRED_ACTIONS[action]) assertExpectedRevision_(payload.expectedRevision);
   let result;
-  if (action === 'updateReport') result = updateReport_(payload.id, payload.report || {});
-  else if (action === 'deleteReport') result = deleteReport_(payload.id);
-  else if (action === 'saveActivities') result = saveActivities_(payload.activities || [], payload.actionLabel || '編集');
-  else if (action === 'restoreHistoryEntry') result = restoreHistoryEntry_(payload.historyId);
-  else if (action === 'changeAdminPassword') return changeAdminPassword_(payload.newPassword || '');
+  if (action === 'updateReport') result = updateReport_(payload.id, payload.report || {}, range);
+  else if (action === 'markDateCheckReviewed') result = markDateCheckReviewed_(payload.id, range);
+  else if (action === 'deleteReport') result = deleteReport_(payload.id, range);
+  else if (action === 'saveActivities') result = saveActivities_(payload.activities || [], payload.actionLabel || '編集', range);
+  else if (action === 'restoreHistoryEntry') result = restoreHistoryEntry_(payload.historyId, range);
+  else if (action === 'changeAdminPassword') return changeAdminPassword_(payload.newPassword || '', range);
   else throw new Error('未対応の操作です: ' + action);
   result.revision = bumpRevision_();
   return result;
@@ -146,7 +150,7 @@ function submitReport_(report) {
   };
 }
 
-function updateReport_(id, report) {
+function updateReport_(id, report, range) {
   const reports = readReports_();
   const before = reports.find(row => row.id === id);
   if (!before) throw new Error('編集対象の報告が見つかりません。');
@@ -154,7 +158,9 @@ function updateReport_(id, report) {
     id: before.id,
     submittedAt: before.submittedAt,
     submittedDate: before.submittedDate,
-    dateCheck: before.dateCheck,
+    dateCheck: report.date && report.date !== before.date
+      ? Object.assign({}, before.dateCheck, { selectedDate: report.date, reviewedAt: '' })
+      : before.dateCheck,
     createdAt: before.createdAt,
     updatedAt: new Date().toISOString()
   }));
@@ -162,10 +168,28 @@ function updateReport_(id, report) {
   const saved = readReports_().find(function(row) { return row.id === updated.id; });
   assertReportSaved_(saved, updated);
   addHistory_('編集', '報告', before, updated);
-  return snapshot_();
+  return snapshot_(range);
 }
 
-function deleteReport_(id) {
+function markDateCheckReviewed_(id, range) {
+  const before = readReports_().find(function(row) { return row.id === id; });
+  if (!before) throw new Error('確認対象の報告が見つかりません。');
+  const check = before.dateCheck || {};
+  if (check.correct) throw new Error('投稿日と送信日が一致しているため、確認操作は不要です。');
+  if (check.reviewedAt) return snapshot_(range);
+  const now = new Date().toISOString();
+  const updated = normalizeReport_(Object.assign({}, before, {
+    dateCheck: Object.assign({}, check, { reviewedAt: now }), updatedAt: now
+  }));
+  upsertJson_(SHEETS.reports, updated.id, updated, updated.updatedAt);
+  const saved = readReports_().find(function(row) { return row.id === updated.id; });
+  assertReportSaved_(saved, updated);
+  if (stableStringify_(saved.dateCheck) !== stableStringify_(updated.dateCheck)) throw new Error('確認済み状態の保存後チェックに失敗しました。');
+  addHistory_('日付確認済み', '報告', before, saved);
+  return snapshot_(range);
+}
+
+function deleteReport_(id, range) {
   const before = readReports_().find(row => row.id === id);
   if (!before) throw new Error('削除対象の報告が見つかりません。');
   deleteJson_(SHEETS.reports, id);
@@ -173,10 +197,10 @@ function deleteReport_(id) {
     throw new Error('削除後の読戻し確認に失敗しました。');
   }
   addHistory_('削除', '報告', before, null);
-  return snapshot_();
+  return snapshot_(range);
 }
 
-function saveActivities_(activities, actionLabel) {
+function saveActivities_(activities, actionLabel, range) {
   const before = readActivities_();
   const normalized = normalizeActivities_(activities);
   writeJsonRows_(SHEETS.activities, normalized);
@@ -185,10 +209,10 @@ function saveActivities_(activities, actionLabel) {
     throw new Error('項目保存後の全項目読戻し確認に失敗しました。');
   }
   addHistory_(actionLabel === '初期化' ? '初期化' : '編集', '生産活動項目', { label: '変更前', activities: before }, { label: '変更後', activities: normalized });
-  return snapshot_();
+  return snapshot_(range);
 }
 
-function restoreHistoryEntry_(historyId) {
+function restoreHistoryEntry_(historyId, range) {
   const entry = readHistory_().find(row => row.id === historyId);
   if (!entry) throw new Error('履歴が見つかりません。');
   if (entry.target === '報告' && entry.before && entry.before.id) {
@@ -196,25 +220,86 @@ function restoreHistoryEntry_(historyId) {
     const restored = normalizeReport_(entry.before);
     upsertJson_(SHEETS.reports, restored.id, restored, restored.updatedAt);
     addHistory_('履歴復元', '報告', current, restored);
-    return snapshot_();
+    return snapshot_(range);
   }
   if (entry.target === '報告' && entry.before && Array.isArray(entry.before.reports)) {
     const current = { label: '履歴復元前', reports: readReports_() };
     writeJsonRows_(SHEETS.reports, entry.before.reports.map(normalizeReport_));
     addHistory_('履歴復元', '報告', current, { label: (entry.label || '履歴') + 'から復元', reports: readReports_().length });
-    return snapshot_();
+    return snapshot_(range);
   }
   throw new Error('この履歴から復元できるデータがありません。');
 }
 
-function changeAdminPassword_(newPassword) {
+function changeAdminPassword_(newPassword, range) {
   if (!isValidAdminPassword_(newPassword)) throw new Error('新しい管理者パスワードは4文字以上にしてください。');
   PropertiesService.getScriptProperties().setProperty(adminHashKey_(), sha256(newPassword));
   PropertiesService.getScriptProperties().deleteProperty(adminRotationKey_());
-  return snapshot_();
+  return snapshot_(range);
 }
 
-function snapshot_() {
+function adminRange_(range) {
+  if (range === undefined) return null; // Previously published clients request the legacy snapshot.
+  function validDate(value) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const parsed = new Date(value + 'T00:00:00Z');
+    return !isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }
+  if (!range || !validDate(range.start) || !validDate(range.end) || range.start > range.end) {
+    throw new Error('開始日と終了日を正しく指定してください。');
+  }
+  return { start: range.start, end: range.end, includeHistory: range.includeHistory === true };
+}
+
+function readRecordColumn_(def, limit) {
+  const sheet = targetSpreadsheet_().getSheetByName(def.name);
+  if (!sheet) return [];
+  const count = Math.min(sheet.getLastRow() - 1, limit);
+  if (count < 1) return [];
+  const column = def.headers.indexOf('json') + 1;
+  return sheet.getRange(2, column, count, 1).getValues().map(function(cell) {
+    try { return JSON.parse(cell[0]); } catch (e) { return null; }
+  }).filter(Boolean);
+}
+
+function rangedReports_(range) {
+  return readRecordColumn_(SHEETS.reports, Infinity)
+    .filter(row => row.name && row.date >= range.start && row.date <= range.end)
+    .map(normalizeReport_);
+}
+
+function confirmedLegacyCopies_(payload) {
+  const reports = payload.kind === 'reports';
+  if (!reports && payload.kind !== 'history') throw new Error('照合対象が不明です。');
+  const items = payload.items;
+  if (!Array.isArray(items) || !items.length || items.length > 300) throw new Error('照合件数が不正です。');
+  const requested = new Map(items.map(item => [item.id, item.hash]));
+  const rows = readRecordColumn_(reports ? SHEETS.reports : SHEETS.history, Infinity);
+  const confirmed = [];
+  for (const row of rows) {
+    if (!requested.has(row.id)) continue;
+    const normalized = reports ? normalizeReport_(row) : row;
+    const matches = () => sha256(stableStringify_(normalized)) === requested.get(row.id);
+    if (!matches()) {
+      // Older clients omitted the empty review timestamp when persisting a report.
+      if (!reports || normalized.dateCheck.reviewedAt) continue;
+      delete normalized.dateCheck.reviewedAt;
+      if (!matches()) continue;
+    }
+    confirmed.push(row.id);
+  }
+  return { systemKey: ACTIVE_SYSTEM_KEY, confirmed: confirmed };
+}
+
+function snapshot_(range) {
+  if (range) {
+    return {
+      systemKey: ACTIVE_SYSTEM_KEY, range: { start: range.start, end: range.end },
+      reports: rangedReports_(range), activities: readActivities_(),
+      history: range.includeHistory ? readRecordColumn_(SHEETS.history, 100) : [],
+      revision: currentRevision_(), passwordRotationRequired: passwordRotationRequired_()
+    };
+  }
   return {
     reports: readReports_(),
     activities: readActivities_(),
@@ -346,7 +431,7 @@ function reportRowValues_(row) {
     report.progress,
     formatDateForSheet_(selectedDate),
     formatDateForSheet_(submittedDate),
-    correct ? '正' : '誤',
+    correct ? '正' : (check.reviewedAt ? '確認済' : '誤'),
     formatDateTimeForSheet_(report.submittedAt || report.createdAt),
     formatDateTimeForSheet_(report.updatedAt),
     report.id,
@@ -433,7 +518,7 @@ function normalizeReport_(report) {
   const submittedDate = report.submittedDate || dateKeyFromTimestamp_(submittedAt) || toDateKey_(new Date());
   const selectedDateForCheck = report.dateCheck && report.dateCheck.selectedDate ? report.dateCheck.selectedDate : (report.date || toDateKey_(new Date()));
   const submittedDateForCheck = report.dateCheck && report.dateCheck.submittedDate ? report.dateCheck.submittedDate : submittedDate;
-  const dateCheck = { selectedDate: selectedDateForCheck, submittedDate: submittedDateForCheck, correct: selectedDateForCheck === submittedDateForCheck };
+  const dateCheck = { selectedDate: selectedDateForCheck, submittedDate: submittedDateForCheck, correct: selectedDateForCheck === submittedDateForCheck, reviewedAt: String(report.dateCheck && report.dateCheck.reviewedAt || '') };
   return {
     id: report.id || 'report_' + Date.now() + '_' + Utilities.getUuid().slice(0, 8),
     date: report.date || toDateKey_(new Date()),

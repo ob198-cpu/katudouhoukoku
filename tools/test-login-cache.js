@@ -66,7 +66,7 @@ function storage(seed = {}) {
 
 async function runtime(facility, {
   failure = '', cache = '', failureName = 'QuotaExceededError', failureCode, sessionCache = '',
-  restoreSession = false, emptyActivities = false, cacheAtStart = false, localOnly = false, submit, publicGate
+  restoreSession = false, emptyActivities = false, cacheAtStart = false, localOnly = false, submit, publicGate, rangeFetch
 } = {}) {
   const prefix = `production_activity:${facility.key}:`;
   const pending = [{ report: fixtureReport('fixture_pending_canary', 15), queuedAt: '2026-11-12T00:00:00.000Z', status: 'blocked', attempts: 1 }];
@@ -120,7 +120,11 @@ async function runtime(facility, {
     URL, localStorage: local, sessionStorage: session,
     fetch: async (_url, options) => {
       const request = JSON.parse(options.body);
-      calls.push({ action: request.action, systemKey: request.systemKey });
+      calls.push({ action: request.action, systemKey: request.systemKey, range: request.payload?.range });
+      if (rangeFetch && request.action === 'adminSnapshot') {
+        const data = await rangeFetch(request.payload.range);
+        return { ok: true, text: async () => JSON.stringify({ ok: true, data: { ...snapshot, ...data, range: request.payload.range, systemKey: facility.key, backendBuildId } }) };
+      }
       if (request.action === 'submitReport' && submit) {
         const data = await submit(request.payload.report);
         return { ok: true, text: async () => JSON.stringify({ ok: true, data: { ...data, backendBuildId } }) };
@@ -134,7 +138,7 @@ async function runtime(facility, {
       if (request.action === 'publicConfig' && publicGate) await publicGate;
       const data = request.action === 'publicConfig'
         ? { backendBuildId, revision: snapshot.revision, activities: snapshot.activities }
-        : { ...snapshot, systemKey: facility.key, backendBuildId: failure === 'build' ? 'offline-other-build' : backendBuildId };
+        : { ...snapshot, range: request.payload.range, systemKey: facility.key, backendBuildId: failure === 'build' ? 'offline-other-build' : backendBuildId };
       return { ok: true, text: async () => JSON.stringify({ ok: true, data }) };
     },
     setTimeout() { return 1; }, clearTimeout() {}, setInterval() { return 1; }, clearInterval() {},
@@ -151,7 +155,8 @@ async function runtime(facility, {
     };
     globalThis.fixtureApi = {
       initAdminPage, loadReports, loadHistory, loadActivities, loadPendingReports,
-      addReport, applySnapshot, reconcileAdminCopies, saveReports, saveHistory, saveActivities
+      addReport, applySnapshot, reconcileAdminCopies, saveReports, saveHistory, saveActivities,
+      requestRangeFrom, clearReportFilters, showAdminView, periodReports, currentReportMonth
     };
   `, context);
   context.fixtureApi.initAdminPage();
@@ -448,5 +453,41 @@ test('認証より前に始まった接続確認が遅れても管理画面の�
       await new Promise(setImmediate);
       assert.equal(r.element('#storage-status').textContent, initial);
     }
+  }
+});
+
+test('当月ログイン、期間指定、逆転した日付、遅れて到着した応答、当月に戻る', async () => {
+  for (const facility of facilities) {
+    let release;
+    const r = await runtime(facility, { rangeFetch: async range => {
+      if (range.start === '2022-01-01') await new Promise(done => { release = done; });
+      return { history: [], reports: [{ ...fixtureReport(range.start, 30), date: range.start }] };
+    } });
+    const month = r.api.currentReportMonth();
+    const requests = () => r.calls.filter(q => q.action === 'adminSnapshot');
+    assert.deepEqual(plain(requests()[0].range), { ...plain(month), includeHistory: false });
+    const query = (start, end) => {
+      r.element('#report-filter-start').value = start;
+      r.element('#report-filter-end').value = end;
+      return r.api.requestRangeFrom('report-filter');
+    };
+    await query('2022-02-02','2022-01-01');
+    assert.equal(requests().length, 1);
+    const older = query('2022-01-01', '2022-01-31');
+    await query('2022-02-28','2022-02-28');
+    release(); await older;
+    assert.ok(r.api.loadReports().some(row => row.date === '2022-02-28'));
+    assert.ok(!r.api.loadReports().some(row => row.date === '2022-01-01'));
+    assert.equal(r.element('#review-filter-start').value, '2022-02-28');
+    r.element('#period-mode').value='week';
+    r.element('#period-date').value='2022-03-01';
+    r.api.showAdminView('summary');
+    await new Promise(setImmediate);
+    assert.deepEqual(plain(requests().at(-1).range), { start:'2022-02-28', end:'2022-03-06' });
+    assert.ok(r.api.periodReports().some(row => row.date === '2022-02-28'));
+    assert.equal(r.element('#report-filter-end').value, '2022-02-28');
+    await r.api.clearReportFilters();
+    assert.equal(requests().at(-1).range.start, month.start);
+    assert.equal(r.element('#report-filter-end').value, month.end);
   }
 });

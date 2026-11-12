@@ -19,6 +19,61 @@ const PENDING_RETRY_BASE_MS = 30000;
 const PENDING_RETRY_MAX_MS = 10 * 60 * 1000;
 let cloudRevision = null;
 let adminSnapshotSequence = 0;
+let reportRange = currentReportMonth();
+let requestedReportRange = reportRange;
+let rangeRequestId = 0;
+let loadedReportRange = null;
+let activeAdminView = "reports";
+let summaryData = null;
+
+function currentReportMonth() {
+  const today = todayKey();
+  return { start: monthStart(today), end: monthEnd(today) };
+}
+
+function setRangeInputs(range) {
+  for (const prefix of ["report-filter", "review-filter"]) {
+    if ($("#" + prefix + "-start")) $("#" + prefix + "-start").value = range.start;
+    if ($("#" + prefix + "-end")) $("#" + prefix + "-end").value = range.end;
+  }
+}
+
+function snapshotRange(range) {
+  return { start: range.start, end: range.end, includeHistory: !!$(".history-panel")?.open };
+}
+
+function checkSnapshotRange(data, range) {
+  if (data.systemKey !== CLOUD_SYSTEM_KEY || data.range?.start !== range.start || data.range?.end !== range.end) {
+    throw new Error("指定期間と保存先を確認できませんでした。再読み込みしてください。");
+  }
+}
+
+async function loadReportRange(range) {
+  if (!range.start || !range.end || range.start > range.end) {
+    setStorageStatus("開始日と終了日を正しく指定してください。", "error");
+    return;
+  }
+  if (cloudEnabled()) {
+    requestedReportRange = range;
+    try {
+      setStorageStatus("指定期間の報告を取得中...", "warn");
+      if (!await refreshCloudAdmin(adminPassword(), range)) return;
+    } catch (error) {
+      requestedReportRange = reportRange;
+      setRangeInputs(reportRange);
+      setStorageStatus("報告を取得できませんでした: " + error.message, "error");
+      return;
+    }
+  } else {
+    reportRange = range;
+  }
+  setRangeInputs(reportRange);
+  renderAdminAll();
+}
+
+function requestRangeFrom(prefix) {
+  return loadReportRange({ start: $("#" + prefix + "-start").value, end: $("#" + prefix + "-end").value });
+}
 let cloudConnectionReady = false;
 let pendingReportRetryTimer = null;
 const transientSnapshotCache = new Map();
@@ -673,12 +728,56 @@ function reconcileAdminCopies(data) {
   }
 }
 
-async function refreshCloudAdmin(password = adminPassword()) {
+async function reconcileOlderCopies(password) {
+  if (!globalThis.crypto?.subtle || new URL(CLOUD_API_URL).searchParams.get("systemKey") !== CLOUD_SYSTEM_KEY) return;
+  for (const [key, kind] of [[REPORTS_KEY, "reports"], [HISTORY_KEY, "history"]]) {
+    const rows = JSON.parse(localStorage.getItem(key) || "[]");
+    if (!Array.isArray(rows)) continue;
+    for (let i = 0; i < rows.length; i += 300) {
+      const signatures = new Map();
+      const items = await Promise.all(rows.slice(i, i + 300).filter(row => row?.id).map(async row => {
+        const signature = canonicalRow(row);
+        signatures.set(row.id, signature);
+        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(signature));
+        return { id: row.id, hash: Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("") };
+      }));
+      if (!items.length) continue;
+      const data = await cloudRequest("adminLegacyMatches", { kind, items }, password);
+      if (data.systemKey !== CLOUD_SYSTEM_KEY || !Array.isArray(data.confirmed)) return;
+      await withPendingLock(async () => {
+        if (window.indexedDB) await readOverflowReports();
+        const protectedIds = new Set([...rawPendingItems().map(item => item.report.id), ...overflowReports.keys()]);
+        const confirmed = new Set(data.confirmed);
+        const current = JSON.parse(localStorage.getItem(key) || "[]");
+        if (!Array.isArray(current)) return;
+        const keep = current.filter(row => protectedIds.has(row?.id) || !confirmed.has(row?.id) ||
+          signatures.get(row.id) !== canonicalRow(row));
+        if (keep.length === current.length) return;
+        if (keep.length) localStorage.setItem(key, JSON.stringify(keep));
+        else localStorage.removeItem(key);
+      });
+    }
+  }
+}
+
+async function refreshCloudAdmin(password = adminPassword(), range = requestedReportRange) {
   if (!cloudEnabled()) {
     setStorageStatus("ローカル保存中: 管理者データもこの端末のブラウザ内だけです。", "warn");
     return false;
   }
-  const data = await cloudRequest("adminSnapshot", {}, password);
+  const requestId = ++rangeRequestId;
+  let data;
+  try {
+    data = await cloudRequest("adminSnapshot", { range: snapshotRange(range) }, password);
+    checkSnapshotRange(data, range);
+  } catch (error) {
+    if (requestId !== rangeRequestId) return false;
+    throw error;
+  }
+  if (requestId !== rangeRequestId) return false;
+  reportRange = loadedReportRange = range;
+  setRangeInputs(range);
+  summaryData = null;
   adminSnapshotSequence++;
   applySnapshot(data);
   await withPendingLock(() => {
@@ -691,8 +790,20 @@ async function refreshCloudAdmin(password = adminPassword()) {
 
 async function cloudAdminAction(action, payload = {}) {
   try {
-    const data = await cloudRequest(action, { ...payload, expectedRevision: cloudRevision }, adminPassword());
-    applySnapshot(data);
+    const range = requestedReportRange;
+    const seq = rangeRequestId;
+    const data = await cloudRequest(action, { ...payload, range: snapshotRange(range), expectedRevision: cloudRevision }, adminPassword());
+    checkSnapshotRange(data, range);
+    summaryData = null;
+    if (seq === rangeRequestId) {
+      ++rangeRequestId;
+      reportRange = loadedReportRange = range;
+      setRangeInputs(range);
+      applySnapshot(data);
+    } else {
+      await refreshCloudAdmin(action === "changeAdminPassword" ? payload.newPassword : adminPassword());
+      renderAdminAll();
+    }
     setStorageStatus("クラウド保存済み（サーバー確認済み）", "ok");
     return data;
   } catch (error) {
@@ -1201,6 +1312,7 @@ function clearForm() {
 }
 
 function initAdminPage() {
+  setRangeInputs(reportRange);
   if (sessionStorage.getItem(ADMIN_SESSION_KEY) === "1" && (!cloudEnabled() || adminPassword())) {
     unlockAdmin();
   } else {
@@ -1212,10 +1324,11 @@ function initAdminPage() {
     const pin = $("#admin-pin")?.value || "";
     if (cloudEnabled()) {
       try {
-        await refreshCloudAdmin(pin);
+        if (!await refreshCloudAdmin(pin)) return;
         sessionStorage.setItem(ADMIN_PASSWORD_SESSION_KEY, pin);
         sessionStorage.setItem(ADMIN_SESSION_KEY, "1");
         unlockAdmin(true);
+        reconcileOlderCopies(pin).catch(() => {});
       } catch (error) {
         setMessage("#admin-login-message", "ログインできません: " + error.message, "error");
       }
@@ -1241,8 +1354,17 @@ function initAdminPage() {
   $("#period-date")?.addEventListener("change", renderAdminSummary);
   $("#staff-select")?.addEventListener("change", renderSelectedStaffChart);
   $("#report-search")?.addEventListener("input", renderReportTable);
-  $("#report-filter-start")?.addEventListener("change", renderReportTable);
-  $("#report-filter-end")?.addEventListener("change", renderReportTable);
+  $("#apply-report-range")?.addEventListener("click", () => requestRangeFrom("report-filter"));
+  $("#apply-review-range")?.addEventListener("click", () => requestRangeFrom("review-filter"));
+  $(".history-panel")?.addEventListener("toggle", async event => {
+    if (!cloudEnabled() || !event.currentTarget.open) return;
+    $("#history-list").textContent = "操作履歴を取得中...";
+    try {
+      if (await refreshCloudAdmin()) renderAdminAll();
+    } catch (error) {
+      $("#history-list").textContent = "操作履歴を取得できませんでした: " + error.message;
+    }
+  });
   $("#clear-report-filters")?.addEventListener("click", clearReportFilters);
   $("#cancel-report-edit")?.addEventListener("click", cancelReportEdit);
   $("#report-edit-form")?.addEventListener("submit", saveReportEdit);
@@ -1309,13 +1431,19 @@ function unlockAdmin(alreadySynced = false) {
   $("#admin-console")?.classList.remove("hidden");
   renderAdminAll();
   if (cloudEnabled() && !alreadySynced) {
-    refreshCloudAdmin().then(renderAdminAll).catch(error => {
+    refreshCloudAdmin().then(ok => {
+      if (!ok) return;
+      renderAdminAll();
+      reconcileOlderCopies(adminPassword()).catch(() => {});
+    }).catch(error => {
       setStorageStatus("クラウド同期エラー: " + error.message, "error");
     });
   }
 }
 
 function showAdminView(name) {
+  activeAdminView = name;
+  if (summaryData?.error) summaryData = null;
   $$("[data-admin-view]").forEach(button => button.classList.toggle("active", button.dataset.adminView === name));
   $$("[data-admin-panel]").forEach(panel => panel.classList.toggle("active", panel.dataset.adminPanel === name));
   if (name === "summary") renderAdminSummary();
@@ -1344,7 +1472,9 @@ function periodRange() {
 
 function periodReports() {
   const range = periodRange();
-  return loadReports().filter(report => report.date >= range.start && report.date <= range.end);
+  const source = summaryData?.key === range.start + "/" + range.end && summaryData.rows
+    ? summaryData.rows : loadReports();
+  return source.filter(report => report.date >= range.start && report.date <= range.end);
 }
 
 function shiftPeriod(direction) {
@@ -1397,9 +1527,36 @@ function buildSummary(reports) {
   };
 }
 
+function prepareSummaryRange(range) {
+  if (!cloudEnabled() || (loadedReportRange && loadedReportRange.start <= range.start && loadedReportRange.end >= range.end)) return true;
+  if (activeAdminView !== "summary" || !adminPassword()) return false;
+  const key = range.start + "/" + range.end;
+  if (summaryData?.key === key && summaryData.rows) return true;
+  if (summaryData?.key === key) return false;
+  const state = summaryData = { key };
+  $("#period-label").textContent = formatDate(range.start) + " - " + formatDate(range.end);
+  for (const id of ["total-count", "total-time", "staff-count", "top-activity"]) $("#" + id).textContent = "取得中";
+  for (const id of ["overall-chart", "staff-chart", "staff-summary", "activity-summary", "staff-select"]) $("#" + id).innerHTML = "";
+  cloudRequest("adminSnapshot", { range: { start: range.start, end: range.end } }, adminPassword()).then(data => {
+    checkSnapshotRange(data, range);
+    if (state !== summaryData) return;
+    const rows = new Map(data.reports.map(report => [report.id, normalizeReport(report)]));
+    for (const item of loadPendingReports()) if (!rows.has(item.report.id)) rows.set(item.report.id, item.report);
+    state.rows = Array.from(rows.values());
+    renderAdminSummary();
+  }).catch(error => {
+    if (state !== summaryData) return;
+    state.error = true;
+    for (const id of ["total-count", "total-time", "staff-count", "top-activity"]) $("#" + id).textContent = "取得失敗";
+    setStorageStatus("集計を取得できませんでした: " + error.message, "error");
+  });
+  return false;
+}
+
 function renderAdminSummary() {
   if (!$("#total-count")) return;
   const range = periodRange();
+  if (!prepareSummaryRange(range)) return;
   const reports = periodReports();
   const summary = buildSummary(reports);
   const totalMinutes = reports.reduce((sum, report) => sum + report.minutes, 0);
@@ -1532,7 +1689,7 @@ function buildDateCheckStats(reports) {
 
 function renderDateCheckView() {
   if (!$("#date-check-total")) return;
-  const reports = loadReports().sort((a, b) => `${b.submittedDate || ""}${b.submittedAt || b.createdAt}`.localeCompare(`${a.submittedDate || ""}${a.submittedAt || a.createdAt}`));
+  const reports = loadReports().filter(row => row.date >= reportRange.start && row.date <= reportRange.end).sort((a, b) => `${b.submittedDate || ""}${b.submittedAt || b.createdAt}`.localeCompare(`${a.submittedDate || ""}${a.submittedAt || a.createdAt}`));
   const stats = buildDateCheckStats(reports);
   $("#date-check-total").textContent = `${stats.total}件`;
   $("#date-check-correct").textContent = `${stats.correct}件`;
@@ -1622,8 +1779,8 @@ function reportSearchText(report) {
 
 function filteredReportRows() {
   const query = ($("#report-search")?.value || "").trim().toLowerCase();
-  const start = $("#report-filter-start")?.value || "";
-  const end = $("#report-filter-end")?.value || "";
+  const start = reportRange.start;
+  const end = reportRange.end;
   return loadReports()
     .filter(report => !start || report.date >= start)
     .filter(report => !end || report.date <= end)
@@ -1633,9 +1790,7 @@ function filteredReportRows() {
 
 function clearReportFilters() {
   if ($("#report-search")) $("#report-search").value = "";
-  if ($("#report-filter-start")) $("#report-filter-start").value = "";
-  if ($("#report-filter-end")) $("#report-filter-end").value = "";
-  renderReportTable();
+  return loadReportRange(currentReportMonth());
 }
 
 function renderReportTable() {
@@ -1643,7 +1798,7 @@ function renderReportTable() {
   if (!container) return;
   const reports = filteredReportRows();
   if (!reports.length) {
-    container.innerHTML = '<div class="empty-state">報告はまだありません。</div>';
+    container.innerHTML = '<div class="empty-state">指定期間に該当する報告はありません。</div>';
     return;
   }
   container.innerHTML = `

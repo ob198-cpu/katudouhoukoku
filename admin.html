@@ -131,7 +131,10 @@
               終了日
               <input type="date" id="report-filter-end">
             </label>
-            <button type="button" class="secondary-button" id="clear-report-filters">検索クリア</button>
+            <div class="inline-actions">
+              <button type="button" class="primary-button" id="apply-report-range">期間を取得</button>
+              <button type="button" class="secondary-button" id="clear-report-filters">検索クリア</button>
+            </div>
           </div>
           <section id="report-edit-panel" class="edit-panel hidden" aria-labelledby="report-edit-title">
             <div class="card-head compact-head">
@@ -175,6 +178,11 @@
               <h2>投稿日と送信日の確認</h2>
               <p class="muted">利用者が選んだ投稿日と、実際に送信された日を比較します。</p>
             </div>
+          </div>
+          <div class="report-tools">
+            <label>開始日<input type="date" id="review-filter-start"></label>
+            <label>終了日<input type="date" id="review-filter-end"></label>
+            <button type="button" class="primary-button" id="apply-review-range">期間を取得</button>
           </div>
           <div class="kpi-grid">
             <div class="kpi-card"><span>確認対象</span><strong id="date-check-total">0件</strong></div>
@@ -234,6 +242,6 @@
   </main>
 
   <script src="config.js?v=20260706-soft-date-check"></script>
-  <script src="app.js?v=20261112-report-storage-v3"></script>
+  <script src="app.js?v=20261112-report-range-v1"></script>
 </body>
 </html>
