@@ -66,7 +66,7 @@ function storage(seed = {}) {
 
 async function runtime(facility, {
   failure = '', cache = '', failureName = 'QuotaExceededError', failureCode, sessionCache = '',
-  restoreSession = false, emptyActivities = false, cacheAtStart = false, localOnly = false, submit
+  restoreSession = false, emptyActivities = false, cacheAtStart = false, localOnly = false, submit, publicGate
 } = {}) {
   const prefix = `production_activity:${facility.key}:`;
   const pending = [{ report: fixtureReport('fixture_pending_canary', 15), queuedAt: '2026-11-12T00:00:00.000Z', status: 'blocked', attempts: 1 }];
@@ -131,6 +131,7 @@ async function runtime(facility, {
         if (failure === 'non-json') return { ok: true, text: async () => '<html>offline fixture unavailable</html>' };
         if (failure === 'password') return { ok: true, text: async () => JSON.stringify({ ok: false, error: '管理者パスワードが違います。' }) };
       }
+      if (request.action === 'publicConfig' && publicGate) await publicGate;
       const data = request.action === 'publicConfig'
         ? { backendBuildId, revision: snapshot.revision, activities: snapshot.activities }
         : { ...snapshot, systemKey: facility.key, backendBuildId: failure === 'build' ? 'offline-other-build' : backendBuildId };
@@ -432,5 +433,20 @@ test('退避した報告は同じ受付IDで編集再送でき、別IDの同日�
     assert.equal(saved.id, report.id);
     assert.equal(saved.progress, '修正後');
     assert.ok(!JSON.parse(r.local.getItem(r.prefix + 'pending_reports_v1')).some(x => x.report.id === report.id));
+  }
+});
+
+test('認証より前に始まった接続確認が遅れても管理画面の接続結果を上書きしない', async () => {
+  for (const facility of facilities) {
+    for (const fail of [false, true]) {
+      let finish;
+      const publicGate = new Promise((resolve, reject) => { finish = fail ? () => reject(new Error('offline')) : resolve; });
+      const r = await runtime(facility, { publicGate });
+      const initial = r.element('#storage-status').textContent;
+      assert.match(initial, /クラウド接続済み: 管理者/);
+      finish();
+      await new Promise(setImmediate);
+      assert.equal(r.element('#storage-status').textContent, initial);
+    }
   }
 });
