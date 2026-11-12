@@ -150,7 +150,9 @@ function addDays(value, days) {
 
 function addMonths(value, months) {
   const date = parseDate(value) || new Date();
-  date.setMonth(date.getMonth() + months);
+  const targetMonth = date.getMonth() + months;
+  const lastDay = new Date(date.getFullYear(), targetMonth + 1, 0).getDate();
+  date.setMonth(targetMonth, Math.min(date.getDate(), lastDay));
   return toDateKey(date);
 }
 
@@ -775,8 +777,8 @@ async function refreshCloudAdmin(password = adminPassword(), range = requestedRe
     throw error;
   }
   if (requestId !== rangeRequestId) return false;
+  if (range.start !== reportRange.start || range.end !== reportRange.end) setRangeInputs(range);
   reportRange = loadedReportRange = range;
-  setRangeInputs(range);
   summaryData = null;
   adminSnapshotSequence++;
   applySnapshot(data);
@@ -1352,6 +1354,9 @@ function initAdminPage() {
   $("#period-next")?.addEventListener("click", () => shiftPeriod(1));
   $("#period-mode")?.addEventListener("change", renderAdminSummary);
   $("#period-date")?.addEventListener("change", renderAdminSummary);
+  window.addEventListener("online", () => {
+    if (activeAdminView === "summary" && summaryData?.error) renderAdminSummary();
+  });
   $("#staff-select")?.addEventListener("change", renderSelectedStaffChart);
   $("#report-search")?.addEventListener("input", renderReportTable);
   $("#apply-report-range")?.addEventListener("click", () => requestRangeFrom("report-filter"));
@@ -1443,7 +1448,8 @@ function unlockAdmin(alreadySynced = false) {
 
 function showAdminView(name) {
   activeAdminView = name;
-  if (summaryData?.error) summaryData = null;
+  clearSummaryError();
+  if (name !== "summary" && !summaryData?.rows) summaryData = null;
   $$("[data-admin-view]").forEach(button => button.classList.toggle("active", button.dataset.adminView === name));
   $$("[data-admin-panel]").forEach(panel => panel.classList.toggle("active", panel.dataset.adminPanel === name));
   if (name === "summary") renderAdminSummary();
@@ -1527,8 +1533,23 @@ function buildSummary(reports) {
   };
 }
 
+function clearSummaryError() {
+  const error = summaryData?.error;
+  if (!error) return;
+  const status = $("#storage-status");
+  if (status && status.textContent === error.message) {
+    status.textContent = error.previousText;
+    status.className = error.previousClass;
+  }
+  summaryData = null;
+}
+
 function prepareSummaryRange(range) {
-  if (!cloudEnabled() || (loadedReportRange && loadedReportRange.start <= range.start && loadedReportRange.end >= range.end)) return true;
+  clearSummaryError();
+  if (!cloudEnabled() || (loadedReportRange && loadedReportRange.start <= range.start && loadedReportRange.end >= range.end)) {
+    if (!summaryData?.rows) summaryData = null;
+    return true;
+  }
   if (activeAdminView !== "summary" || !adminPassword()) return false;
   const key = range.start + "/" + range.end;
   if (summaryData?.key === key && summaryData.rows) return true;
@@ -1546,9 +1567,11 @@ function prepareSummaryRange(range) {
     renderAdminSummary();
   }).catch(error => {
     if (state !== summaryData) return;
-    state.error = true;
+    const status = $("#storage-status");
+    const message = "集計を取得できませんでした: " + error.message;
+    state.error = { message, previousText: status?.textContent, previousClass: status?.className };
     for (const id of ["total-count", "total-time", "staff-count", "top-activity"]) $("#" + id).textContent = "取得失敗";
-    setStorageStatus("集計を取得できませんでした: " + error.message, "error");
+    setStorageStatus(message, "error");
   });
   return false;
 }

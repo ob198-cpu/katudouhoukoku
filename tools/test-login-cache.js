@@ -456,6 +456,83 @@ test('認証より前に始まった接続確認が遅れても管理画面の�
   }
 });
 
+test('検索前の日付は履歴の読込前後も保持し、検索ボタンで対象期間を適用する', async () => {
+  for (const facility of facilities) {
+    let releaseHistory;
+    const r = await runtime(facility, { rangeFetch: async range => {
+      if (range.includeHistory && !releaseHistory) await new Promise(done => { releaseHistory = done; });
+      return { reports: [], history: [] };
+    } });
+    const current = r.api.currentReportMonth();
+    const start = r.element('#report-filter-start'), end = r.element('#report-filter-end');
+    start.value = '2022-02-03';
+    const panel = r.element('.history-panel');
+    panel.open = true;
+    const loading = panel.listeners.get('toggle')({ currentTarget: panel });
+    end.value = '2022-02-09';
+    releaseHistory();
+    await loading;
+    assert.equal(r.calls.at(-1).range.start, current.start);
+    assert.equal(start.value, '2022-02-03');
+    assert.equal(end.value, '2022-02-09');
+    await r.element('#apply-report-range').listeners.get('click')();
+    assert.equal(r.calls.at(-1).range.start, start.value);
+    assert.equal(r.calls.at(-1).range.end, end.value);
+    assert.equal(r.element('#review-filter-end').value, end.value);
+  }
+});
+
+test('月次集計の前後移動は隣の月の同日または末日、週次は7日で移動する', async () => {
+  for (const facility of facilities) {
+    const r = await runtime(facility);
+    const date = r.element('#period-date'), mode = r.element('#period-mode');
+    for (const [unit, before, button, after] of [
+      ['month','2026-10-31','next','2026-11-30'], ['month','2026-03-31','prev','2026-02-28'],
+      ['month','2024-03-31','prev','2024-02-29'], ['month','2026-12-15','next','2027-01-15'],
+      ['week','2026-10-31','next','2026-11-07']
+    ]) {
+      mode.value = unit;
+      date.value = before;
+      r.element('#period-' + button).listeners.get('click')();
+      assert.equal(date.value, after);
+    }
+  }
+});
+
+test('集計は同じ月の再選択で復旧し、遅れた失敗が現在の集計を上書きしない', async () => {
+  for (const facility of facilities) {
+    let fail = true, rejectJanuary;
+    const february = { ...fixtureReport('february', 40), date: '2022-02-03' };
+    const r = await runtime(facility, { rangeFetch: async range => {
+      if (range.start === '2022-01-01') await new Promise((_, reject) => { rejectJanuary = reject; });
+      if (range.start === '2022-02-01' && fail) throw Error('offline fixture');
+      return { reports: [february], history: [] };
+    } });
+    const date = r.element('#period-date'), count = r.element('#total-count'), status = r.element('#storage-status');
+    r.element('#period-mode').value = 'month';
+    date.value = '2022-02-01';
+    r.api.showAdminView('summary');
+    await new Promise(setImmediate);
+    assert.equal(count.textContent, '取得失敗');
+    fail = false;
+    date.value = '2022-02-02';
+    date.listeners.get('change')();
+    await new Promise(setImmediate);
+    assert.equal(count.textContent, '1件');
+    assert.doesNotMatch(status.textContent, /集計を取得できません/);
+    date.value = '2022-01-01';
+    date.listeners.get('change')();
+    date.value = r.api.currentReportMonth().start;
+    date.listeners.get('change')();
+    const currentCount = count.textContent;
+    assert.match(currentCount, /^\d+件$/);
+    rejectJanuary(Error('late failure'));
+    await new Promise(setImmediate);
+    assert.equal(count.textContent, currentCount);
+    assert.doesNotMatch(status.textContent, /集計を取得できません/);
+  }
+});
+
 test('当月ログイン、期間指定、逆転した日付、遅れて到着した応答、当月に戻る', async () => {
   for (const facility of facilities) {
     let release;
