@@ -19,7 +19,6 @@ const PENDING_RETRY_BASE_MS = 30000;
 const PENDING_RETRY_MAX_MS = 10 * 60 * 1000;
 let cloudRevision = null;
 let cloudConnectionReady = false;
-let pendingReportFlushPromise = null;
 let pendingReportRetryTimer = null;
 const transientSnapshotCache = new Map();
 
@@ -178,19 +177,20 @@ function parseJson(key, fallback) {
 
 function writeCachedJson(key, value, { allowMemoryFallback = false } = {}) {
   const serialized = JSON.stringify(value);
+  if (allowMemoryFallback && (key === REPORTS_KEY || key === HISTORY_KEY)) {
+    transientSnapshotCache.set(key, serialized);
+    return;
+  }
   try {
     localStorage.setItem(key, serialized);
     transientSnapshotCache.delete(key);
   } catch (error) {
-    const quotaExceeded = error?.name === "QuotaExceededError" ||
-      error?.name === "NS_ERROR_DOM_QUOTA_REACHED" || error?.code === 22 || error?.code === 1014;
-    // Re-fetchable snapshots/defaults may use memory; unsent/local changes still require durable storage.
-    if (!allowMemoryFallback || !quotaExceeded) throw error;
+    if (!allowMemoryFallback || !quotaError(error)) throw error;
     transientSnapshotCache.set(key, serialized);
   }
 }
 
-function loadPendingReports() {
+function loadLegacyPendingReports() {
   const pending = parseJson(PENDING_REPORTS_KEY, []);
   return Array.isArray(pending)
     ? pending.filter(item => item?.report?.id).map(item => ({
@@ -205,15 +205,107 @@ function loadPendingReports() {
     : [];
 }
 
-function savePendingReports(pending) {
+// The overflow store contains only unsent reports for this office.
+const overflowReports = new Map();
+let pendingWork = Promise.resolve();
+let unprotectedFormId = "";
+
+function guardUnprotectedForm(event) {
+  if (!unprotectedFormId) return;
+  event.preventDefault();
+  event.returnValue = "";
+}
+
+function quotaError(error) {
+  return error?.name === "QuotaExceededError" || error?.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    error?.code === 22 || error?.code === 1014;
+}
+
+function overflowTransaction(mode, operation) {
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(scopedStorageKey("outbox_v1"), 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("pending", { keyPath: "report.id" });
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      try {
+        const tx = db.transaction("pending", mode);
+        const result = operation(tx.objectStore("pending"));
+        tx.oncomplete = () => { db.close(); resolve(result.result); };
+        tx.onabort = () => { db.close(); reject(tx.error || new Error("未送信データの保管に失敗しました。")); };
+      } catch (error) { db.close(); reject(error); }
+    };
+  });
+}
+
+async function readOverflowReports() {
+  if (!window.indexedDB) return;
+  const rows = await overflowTransaction("readonly", store => store.getAll());
+  overflowReports.clear();
+  for (const item of rows) overflowReports.set(item.report.id, item);
+}
+
+function withPendingLock(work) {
+  const run = async () => {
+    // localStorage and direct online submission are still available when IndexedDB is unavailable.
+    try { await readOverflowReports(); } catch {}
+    return work();
+  };
+  if (navigator.locks?.request) return navigator.locks.request(scopedStorageKey("pending_lock"), run);
+  const next = pendingWork.then(run);
+  pendingWork = next.catch(() => {});
+  return next;
+}
+
+function loadPendingReports() {
+  const all = new Map(loadLegacyPendingReports().map(item => [item.report.id, item]));
+  for (const [id, item] of overflowReports) all.set(id, item);
+  return [...all.values()];
+}
+
+function rawPendingItems() {
+  const rows = JSON.parse(localStorage.getItem(PENDING_REPORTS_KEY) || "[]");
+  if (!Array.isArray(rows) || rows.some(row => !row?.report?.id)) throw new Error("未送信データの読み取りに失敗しました。");
+  return rows;
+}
+
+async function storePendingItem(item) {
+  if (!overflowReports.has(item.report.id)) {
+    const pending = rawPendingItems().filter(entry => entry.report.id !== item.report.id);
+    try {
+      localStorage.setItem(PENDING_REPORTS_KEY, JSON.stringify([...pending, item]));
+      return;
+    } catch (error) {
+      if (!quotaError(error)) throw error;
+      if (!window.indexedDB) throw error;
+    }
+  }
   try {
-    localStorage.setItem(PENDING_REPORTS_KEY, JSON.stringify(pending));
-  } catch (error) {
-    setStorageStatus("端末の保存容量が不足しています。画面を閉じず、管理者へ連絡してください。", "error");
+    await overflowTransaction("readwrite", store => store.put(item));
+  } catch (cause) {
+    const error = new Error("端末に未送信の控えを保存できません。");
+    error.noDraftSpace = true;
     throw error;
   }
+  overflowReports.set(item.report.id, item);
+}
+
+function refreshPendingPanel() {
   renderPendingReportPanel();
   checkLocalStorageCapacity();
+}
+
+async function removePendingReport(id) {
+  const pending = rawPendingItems();
+  if (pending.some(item => item.report.id === id)) {
+    const remaining = pending.filter(item => item.report.id !== id);
+    if (remaining.length) localStorage.setItem(PENDING_REPORTS_KEY, JSON.stringify(remaining));
+    else localStorage.removeItem(PENDING_REPORTS_KEY);
+  }
+  if (overflowReports.has(id)) {
+    await overflowTransaction("readwrite", store => store.delete(id));
+    overflowReports.delete(id);
+  }
 }
 
 function upsertLocalReport(report, options = {}) {
@@ -224,39 +316,17 @@ function upsertLocalReport(report, options = {}) {
   return normalized;
 }
 
-function queuePendingReport(report) {
-  const normalized = upsertLocalReport(report);
-  const pending = loadPendingReports().filter(item => item.report.id !== normalized.id);
-  pending.push({
-    report: normalized,
-    queuedAt: new Date().toISOString(),
-    lastAttemptAt: "",
-    lastError: "",
-    attempts: 0,
-    status: "pending",
-    nextAttemptAt: ""
-  });
-  savePendingReports(pending);
-  return normalized;
-}
-
-function updatePendingReportFailure(id, error) {
-  const pending = loadPendingReports();
-  const item = pending.find(entry => entry.report.id === id);
+async function updatePendingReportFailure(id, error) {
+  const item = loadPendingReports().find(entry => entry.report.id === id);
   if (!item) return;
   const permanent = isPermanentPendingError(error);
-  item.lastAttemptAt = new Date().toISOString();
-  item.lastError = String(error?.message || error || "保存に失敗しました。");
-  item.attempts += 1;
-  item.status = permanent ? "blocked" : "pending";
-  item.nextAttemptAt = permanent
-    ? ""
-    : new Date(Date.now() + Math.min(PENDING_RETRY_MAX_MS, PENDING_RETRY_BASE_MS * (2 ** Math.min(item.attempts - 1, 5)))).toISOString();
-  savePendingReports(pending);
-}
-
-function removePendingReport(id) {
-  savePendingReports(loadPendingReports().filter(item => item.report.id !== id));
+  const attempts = item.attempts + 1;
+  await storePendingItem({
+    ...item, attempts, status: permanent ? "blocked" : "pending",
+    lastAttemptAt: new Date().toISOString(), lastError: String(error?.message || error),
+    nextAttemptAt: permanent ? "" : new Date(Date.now() +
+      Math.min(PENDING_RETRY_MAX_MS, PENDING_RETRY_BASE_MS * (2 ** Math.min(attempts - 1, 5)))).toISOString()
+  });
 }
 
 function mergePendingReportsIntoLocal(options = {}) {
@@ -315,10 +385,31 @@ function verifySubmittedReport(data, expectedReport) {
   return saved;
 }
 
+async function submitAndVerify(report) {
+  const data = await cloudRequest("submitReport", { report, clientSubmissionId: report.id });
+  const saved = verifySubmittedReport(data, report);
+  if (Number.isFinite(Number(data.revision))) cloudRevision = Number(data.revision);
+  upsertLocalReport(saved, { allowMemoryFallback: true });
+  if (Array.isArray(data.activities)) saveActivities(data.activities, { allowMemoryFallback: true });
+  return saved;
+}
+
+async function sendQueuedReport(report) {
+  let saved;
+  try {
+    saved = await submitAndVerify(report);
+  } catch (error) {
+    // The original durable draft also survives failure to store extra retry metadata.
+    try { await updatePendingReportFailure(report.id, error); } catch {}
+    throw error;
+  }
+  await removePendingReport(report.id);
+  return saved;
+}
+
 async function flushPendingReports(options = {}) {
   if (!cloudEnabled()) return { saved: 0, pending: loadPendingReports().length };
-  if (pendingReportFlushPromise) return pendingReportFlushPromise;
-  pendingReportFlushPromise = (async () => {
+  return withPendingLock(async () => {
     let savedCount = 0;
     const queue = loadPendingReports();
     for (const item of queue) {
@@ -326,40 +417,32 @@ async function flushPendingReports(options = {}) {
       if (item.status === "blocked" && !options.force) continue;
       if (!options.force && item.nextAttemptAt && Date.parse(item.nextAttemptAt) > Date.now()) continue;
       try {
-        const data = await cloudRequest("submitReport", {
-          report: item.report,
-          clientSubmissionId: item.report.id
-        });
-        if (Number.isFinite(Number(data.revision))) cloudRevision = Number(data.revision);
-        const saved = verifySubmittedReport(data, item.report);
-        upsertLocalReport(saved);
-        if (Array.isArray(data.activities)) saveActivities(data.activities);
-        removePendingReport(item.report.id);
+        await sendQueuedReport(item.report);
         savedCount += 1;
       } catch (error) {
-        updatePendingReportFailure(item.report.id, error);
         if (options.throwOnError) throw error;
       }
     }
-    const remaining = loadPendingReports().length;
-    if (remaining) {
-      const blocked = loadPendingReports().filter(item => item.status === "blocked").length;
-      setStorageStatus(
-        blocked
-          ? `要確認 ${blocked}件・未送信 ${remaining - blocked}件があります。下の一覧から修正または再送してください。`
-          : `未送信 ${remaining}件: 端末に保護済みです。接続回復後に自動再送します。`,
-        blocked ? "error" : "warn"
-      );
-    } else if (savedCount) {
-      setStorageStatus("クラウド保存済み（サーバー読戻し確認済み）", "ok");
-    }
+    const remaining = showPendingOutcome(savedCount);
     return { saved: savedCount, pending: remaining };
-  })();
-  try {
-    return await pendingReportFlushPromise;
-  } finally {
-    pendingReportFlushPromise = null;
+  });
+}
+
+function showPendingOutcome(savedCount) {
+  const remaining = loadPendingReports().length;
+  if (remaining) {
+    const blocked = loadPendingReports().filter(item => item.status === "blocked").length;
+    setStorageStatus(
+      blocked
+        ? `要確認 ${blocked}件・未送信 ${remaining - blocked}件があります。下の一覧から修正または再送してください。`
+        : `未送信 ${remaining}件: 端末に保護済みです。接続回復後に自動再送します。`,
+      blocked ? "error" : "warn"
+    );
+  } else if (savedCount) {
+    setStorageStatus("クラウド保存済み（サーバー読戻し確認済み）", "ok");
   }
+  refreshPendingPanel();
+  return remaining;
 }
 
 function startPendingReportRetry() {
@@ -465,21 +548,14 @@ async function handlePendingReportAction(event) {
   }
   if (action === "discard") {
     if (!window.confirm("この未送信データを破棄します。クラウドには保存されません。よろしいですか？")) return;
-    removePendingReport(id);
+    await withPendingLock(() => removePendingReport(id));
+    refreshPendingPanel();
     setStorageStatus("未送信データを破棄しました。", "warn");
     return;
   }
   if (action === "retry") {
     button.disabled = true;
     try {
-      const pending = loadPendingReports();
-      const item = pending.find(entry => entry.report.id === id);
-      if (item) {
-        item.status = "pending";
-        item.nextAttemptAt = "";
-        item.lastError = "";
-        savePendingReports(pending);
-      }
       await flushPendingReports({ onlyId: id, force: true, throwOnError: true });
     } catch (error) {
       setStorageStatus("再送できませんでした: " + error.message, "error");
@@ -555,6 +631,44 @@ async function refreshCloudPublic() {
   }
 }
 
+function canonicalRow(row) {
+  return JSON.stringify(row, (_key, value) => value && typeof value === "object" && !Array.isArray(value)
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]])) : value);
+}
+
+function releaseConfirmedCopies(key, serverRows, protectedIds) {
+  const original = localStorage.getItem(key);
+  if (!original) return;
+  const cached = JSON.parse(original);
+  if (!Array.isArray(cached)) return;
+  const byId = new Map(serverRows.filter(row => row?.id).map(row => [row.id, row]));
+  const keep = cached.filter(row => {
+    const remote = byId.get(row?.id);
+    if (!remote || protectedIds.has(row.id)) return true;
+    const signature = canonicalRow(row);
+    if (signature === canonicalRow(remote)) return false;
+    return key !== REPORTS_KEY || signature !== canonicalRow(normalizeReport(remote));
+  });
+  if (keep.length === cached.length || localStorage.getItem(key) !== original) return;
+  if (keep.length) localStorage.setItem(key, JSON.stringify(keep));
+  else localStorage.removeItem(key);
+}
+
+function reconcileAdminCopies(data) {
+  // Only the selected office's authenticated snapshot can release its own verified copies.
+  try {
+    const endpointKey = new URL(CLOUD_API_URL).searchParams.get("systemKey");
+    if (endpointKey !== CLOUD_SYSTEM_KEY || (data.systemKey && data.systemKey !== CLOUD_SYSTEM_KEY)) return;
+    const pending = JSON.parse(localStorage.getItem(PENDING_REPORTS_KEY) || "[]");
+    if (!Array.isArray(pending) || pending.some(item => !item?.report?.id)) return;
+    const ids = new Set([...pending.map(item => item.report.id), ...overflowReports.keys()]);
+    if (Array.isArray(data.reports)) releaseConfirmedCopies(REPORTS_KEY, data.reports, ids);
+    if (Array.isArray(data.history)) releaseConfirmedCopies(HISTORY_KEY, data.history, new Set());
+  } catch {
+    // An unreadable or changed legacy cache remains on the device for recovery.
+  }
+}
+
 async function refreshCloudAdmin(password = adminPassword()) {
   if (!cloudEnabled()) {
     setStorageStatus("ローカル保存中: 管理者データもこの端末のブラウザ内だけです。", "warn");
@@ -562,6 +676,10 @@ async function refreshCloudAdmin(password = adminPassword()) {
   }
   const data = await cloudRequest("adminSnapshot", {}, password);
   applySnapshot(data);
+  await withPendingLock(() => {
+    reconcileAdminCopies(data);
+    if (overflowReports.size) mergePendingReportsIntoLocal({ allowMemoryFallback: true });
+  });
   setStorageStatus("クラウド接続済み: 管理者操作はサーバー側パスワードで保護されています。", "ok");
   return true;
 }
@@ -717,12 +835,46 @@ async function addReport(report) {
     createdAt: submittedAt,
     updatedAt: submittedAt
   });
-  if (hasSameDayNameReport(normalized)) throw new Error(DUPLICATE_REPORT_MESSAGE);
+  if (hasSameDayNameReport(normalized, normalized.id)) throw new Error(DUPLICATE_REPORT_MESSAGE);
   if (cloudEnabled()) {
-    const queued = queuePendingReport(normalized);
-    setStorageStatus("端末に退避済み: サーバーへ保存しています。", "warn");
-    await flushPendingReports({ onlyId: queued.id, force: true, throwOnError: true });
-    return loadReports().find(item => item.id === queued.id) || queued;
+    return withPendingLock(async () => {
+      let protectedDraft = false;
+      try {
+        try {
+          await storePendingItem({ report: normalized, queuedAt: new Date().toISOString(),
+            lastAttemptAt: "", lastError: "", attempts: 0, status: "pending", nextAttemptAt: "" });
+          protectedDraft = true;
+          unprotectedFormId = "";
+        } catch (error) {
+          if (!quotaError(error) && !error.noDraftSpace) throw error;
+        }
+        if (protectedDraft) {
+          upsertLocalReport(normalized, { allowMemoryFallback: true });
+          setStorageStatus("端末に退避済み: サーバーへ保存しています。", "warn");
+          const saved = await sendQueuedReport(normalized);
+          showPendingOutcome(1);
+          return saved;
+        }
+        // Even if both local stores are full, an online submission only needs a verified server reply.
+        unprotectedFormId = normalized.id;
+        setStorageStatus("サーバーへ送信しています。", "warn");
+        try {
+          const saved = await submitAndVerify(normalized);
+          await removePendingReport(saved.id);
+          unprotectedFormId = "";
+          showPendingOutcome(1);
+          return saved;
+        } catch (cause) {
+          const error = new Error("保存を確認できませんでした。画面を閉じずに再送してください。" + cause.message);
+          error.keepInput = true;
+          throw error;
+        }
+      } catch (error) {
+        showPendingOutcome(0);
+        if (!protectedDraft) setStorageStatus("サーバーへの保存を確認できません。", "error");
+        throw error;
+      }
+    });
   }
   const reports = loadReports();
   reports.push(normalized);
@@ -812,6 +964,7 @@ function currentAdminPin() {
 }
 
 function initFormPage() {
+  window.addEventListener("beforeunload", guardUnprotectedForm);
   initReportDateInput();
   updateTotalMinutes();
   renderFormActivities();
@@ -839,12 +992,16 @@ function initFormPage() {
     const submitButton = event.submitter || $("#report-form button[type='submit']");
     if (submitButton) submitButton.disabled = true;
     try {
+      $("#report-form").dataset.pendingReportId = report.id;
       const savedReport = await addReport(report);
       clearForm();
       setMessage("#form-message", submissionSuccessMessage(savedReport), "ok");
     } catch (error) {
       const pending = loadPendingReports().find(item => item.report.id === report.id);
-      if (pending && pending.status !== "blocked") {
+      if (error.keepInput) {
+        setMessage("#form-message", error.message, "error");
+      } else if (pending && pending.status !== "blocked" &&
+          JSON.stringify(comparableReport(pending.report)) === JSON.stringify(comparableReport(report))) {
         clearForm();
         setMessage("#form-message", "端末には保護しましたが、サーバー保存を確認できませんでした。接続回復後に自動再送します。", "error");
       } else if (pending) {
@@ -973,7 +1130,7 @@ function submissionSuccessMessage(savedReport) {
 
 function updateDuplicateWarning() {
   const report = collectFormReport();
-  if (report.name && hasSameDayNameReport(report)) {
+  if (report.name && hasSameDayNameReport(report, report.id)) {
     setMessage("#form-message", DUPLICATE_REPORT_MESSAGE, "error");
   } else if ($("#form-message")?.textContent === DUPLICATE_REPORT_MESSAGE) {
     setMessage("#form-message", "", "ok");
@@ -1030,6 +1187,7 @@ function validateReport(report, options = {}) {
 }
 
 function clearForm() {
+  unprotectedFormId = "";
   $("#report-form")?.reset();
   if ($("#report-form")) delete $("#report-form").dataset.pendingReportId;
   initReportDateInput();
@@ -1052,7 +1210,7 @@ function initAdminPage() {
         await refreshCloudAdmin(pin);
         sessionStorage.setItem(ADMIN_PASSWORD_SESSION_KEY, pin);
         sessionStorage.setItem(ADMIN_SESSION_KEY, "1");
-        unlockAdmin();
+        unlockAdmin(true);
       } catch (error) {
         setMessage("#admin-login-message", "ログインできません: " + error.message, "error");
       }
@@ -1141,11 +1299,11 @@ function initAdminPage() {
   });
 }
 
-function unlockAdmin() {
+function unlockAdmin(alreadySynced = false) {
   $("#admin-lock")?.classList.add("hidden");
   $("#admin-console")?.classList.remove("hidden");
   renderAdminAll();
-  if (cloudEnabled()) {
+  if (cloudEnabled() && !alreadySynced) {
     refreshCloudAdmin().then(renderAdminAll).catch(error => {
       setStorageStatus("クラウド同期エラー: " + error.message, "error");
     });

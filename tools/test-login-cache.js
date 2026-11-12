@@ -66,7 +66,7 @@ function storage(seed = {}) {
 
 async function runtime(facility, {
   failure = '', cache = '', failureName = 'QuotaExceededError', failureCode, sessionCache = '',
-  restoreSession = false, emptyActivities = false, cacheAtStart = false, localOnly = false
+  restoreSession = false, emptyActivities = false, cacheAtStart = false, localOnly = false, submit
 } = {}) {
   const prefix = `production_activity:${facility.key}:`;
   const pending = [{ report: fixtureReport('fixture_pending_canary', 15), queuedAt: '2026-11-12T00:00:00.000Z', status: 'blocked', attempts: 1 }];
@@ -108,7 +108,7 @@ async function runtime(facility, {
   const context = vm.createContext({
     window: {
       PRODUCTION_REPORT_SYSTEM_KEY: facility.key,
-      PRODUCTION_REPORT_API_URL: localOnly ? '' : 'https://script.google.com/macros/s/offline-fixture-only/exec',
+      PRODUCTION_REPORT_API_URL: localOnly ? '' : 'https://script.google.com/macros/s/offline-fixture-only/exec?systemKey=' + facility.key,
       addEventListener() {}
     },
     location: { pathname: `/${facility.repo}/admin.html`, origin: 'https://ob198-cpu.github.io' },
@@ -117,10 +117,14 @@ async function runtime(facility, {
       body: { dataset: { page: 'admin' } }, visibilityState: 'hidden',
       querySelector: element, querySelectorAll() { return []; }, addEventListener() {}
     },
-    localStorage: local, sessionStorage: session,
+    URL, localStorage: local, sessionStorage: session,
     fetch: async (_url, options) => {
       const request = JSON.parse(options.body);
       calls.push({ action: request.action, systemKey: request.systemKey });
+      if (request.action === 'submitReport' && submit) {
+        const data = await submit(request.payload.report);
+        return { ok: true, text: async () => JSON.stringify({ ok: true, data: { ...data, backendBuildId } }) };
+      }
       assert.ok(['publicConfig', 'adminSnapshot'].includes(request.action), 'No mutation action is permitted in this test');
       if (request.action === 'adminSnapshot') {
         if (failure === 'network') throw new Error('offline fixture network unavailable');
@@ -146,7 +150,7 @@ async function runtime(facility, {
     };
     globalThis.fixtureApi = {
       initAdminPage, loadReports, loadHistory, loadActivities, loadPendingReports,
-      addReport, applySnapshot, saveReports, saveHistory, saveActivities
+      addReport, applySnapshot, reconcileAdminCopies, saveReports, saveHistory, saveActivities
     };
   `, context);
   context.fixtureApi.initAdminPage();
@@ -239,9 +243,9 @@ for (const cache of ['items_v3', 'reports_v3', 'history_v2']) {
   });
 }
 
-test('未送信キューの永続保存失敗は成功扱いせず送信を始めない：全11事業所', async () => {
+test('アクセス拒否時は既存の未送信を保護する：全11事業所', async () => {
   for (const facility of facilities) {
-    for (const failureName of ['QuotaExceededError', 'SecurityError']) {
+    for (const failureName of ['SecurityError']) {
       const r = await runtime(facility);
       r.local.failKey = r.prefix + 'pending_reports_v1';
       r.local.failureName = failureName;
@@ -273,9 +277,9 @@ test('通常の報告・作業・履歴保存の容量エラーは従来どお�
   }
 });
 
-test('SecurityErrorは容量上限扱いせずログイン失敗を維持する：全11事業所', async () => {
+test('作業項目保存のSecurityErrorは容量上限扱いせずログイン失敗を維持する：全11事業所', async () => {
   for (const facility of facilities) {
-    for (const cache of ['items_v3', 'reports_v3', 'history_v2']) {
+    for (const cache of ['items_v3']) {
       const r = await runtime(facility, { cache, failureName: 'SecurityError' });
       assert.equal(r.element('#admin-console').classList.contains('hidden'), true, facility.repo + '/' + cache);
       assert.equal(r.session.getItem(r.prefix + 'admin_unlocked_v2'), null);
@@ -355,5 +359,78 @@ test('既存session復元の初回描画はクラウド既定作業だけ容量f
     assert.ok(r.calls.every(call => call.action === 'adminSnapshot'));
     await assert.rejects(() => runtime(facility, { ...options, localOnly: true }),
       error => error.name === 'QuotaExceededError', facility.repo + ': local defaults still require durable storage');
+  }
+});
+
+test('容量上限でも受領内容を照合して送信完了し、保存済みの全件コピーを作らない', async () => {
+  for (const facility of facilities) {
+    const r = await runtime(facility, { submit: report => ({ confirmed: true, systemKey: facility.key, report }) });
+    const old = ['reports_v3', 'history_v2'].map(k => r.local.getItem(r.prefix + k));
+    r.local.failKey = r.prefix + 'pending_reports_v1';
+    const report = { ...fixtureReport('fixture_quota_submit', 40), name: '人工容量試験' };
+    const saved = await r.api.addReport(report);
+    assert.equal(saved.id, report.id);
+    assert.equal(r.calls.filter(x => x.action === 'submitReport').length, 1);
+    assert.deepEqual(['reports_v3', 'history_v2'].map(k => r.local.getItem(r.prefix + k)), old);
+    assert.equal(r.local.getItem(r.prefix + 'pending_reports_v1'), r.pendingJson);
+  }
+});
+
+test('端末容量上限と読戻し不一致が重なっても成功扱いせず同一IDで再送可能', async () => {
+  for (const facility of facilities) {
+    let attempt = 0; const ids = [];
+    const r = await runtime(facility, { submit: report => {
+      ids.push(report.id); attempt++;
+      if (attempt === 1) throw new Error('Network lost');
+      return { confirmed: true, systemKey: facility.key, report: attempt === 2 ? { ...report, progress: '不一致' } : report };
+    } });
+    r.local.failKey = r.prefix + 'pending_reports_v1';
+    const input = { ...fixtureReport('fixture_retry', 15), name: '人工再送試験' };
+    await assert.rejects(r.api.addReport(input), e => e.keepInput === true);
+    await assert.rejects(r.api.addReport(input), /読戻し/);
+    assert.equal((await r.api.addReport(input)).id, input.id);
+    assert.deepEqual(ids, Array(3).fill(input.id));
+    assert.equal(r.local.getItem(r.prefix + 'pending_reports_v1'), r.pendingJson);
+  }
+});
+
+test('認証済み同一事業所の一致行だけを整理し、未送信・変更済み・未登録行を保護する', async () => {
+  for (const facility of facilities) {
+    const r = await runtime(facility);
+    const saved = fixtureReport('match', 35), unmatched = fixtureReport('unique-local', 20);
+    const edited = fixtureReport('changed', 15);
+    const pending = JSON.parse(r.pendingJson)[0].report;
+    const history = { id: 'h1', before: { label: 'A' }, after: { label: 'B' } };
+    const original = JSON.stringify([saved, unmatched, edited, pending]);
+    r.local.values.set(r.prefix + 'reports_v3', original);
+    r.local.values.set(r.prefix + 'history_v2', JSON.stringify([history, { id: 'h2', note: '端末のみ' }]));
+    const data = { reports: [saved, { ...edited, progress: '別内容' }, pending], history: [history], systemKey: facility.key };
+    r.api.reconcileAdminCopies({ ...data, systemKey: 'other' });
+    assert.equal(r.local.getItem(r.prefix + 'reports_v3'), original);
+    r.api.reconcileAdminCopies(data);
+    assert.deepEqual(JSON.parse(r.local.getItem(r.prefix + 'reports_v3')), [unmatched, edited, pending]);
+    assert.deepEqual(JSON.parse(r.local.getItem(r.prefix + 'history_v2')), [{ id: 'h2', note: '端末のみ' }]);
+    assert.equal(r.local.getItem(r.prefix + 'pending_reports_v1'), r.pendingJson);
+    r.local.values.set(r.prefix + 'history_v2', JSON.stringify([history]));
+    r.api.reconcileAdminCopies(data);
+    assert.equal(r.local.getItem(r.prefix + 'history_v2'), null);
+  }
+});
+
+test('退避した報告は同じ受付IDで編集再送でき、別IDの同日同名は拒否する', async () => {
+  for (const facility of facilities) {
+    let offline = true;
+    const r = await runtime(facility, { submit: report => {
+      if (offline) throw new Error('Network lost');
+      return { confirmed: true, systemKey: facility.key, report };
+    } });
+    const report = { ...fixtureReport('fixture_edit_queued', 15), name: '人工控え修正' };
+    await assert.rejects(r.api.addReport(report), /Network lost/);
+    offline = false;
+    await assert.rejects(r.api.addReport({ ...report, id: 'different_id' }), /同じ日に同じ氏名/);
+    const saved = await r.api.addReport({ ...report, progress: '修正後' });
+    assert.equal(saved.id, report.id);
+    assert.equal(saved.progress, '修正後');
+    assert.ok(!JSON.parse(r.local.getItem(r.prefix + 'pending_reports_v1')).some(x => x.report.id === report.id));
   }
 });
