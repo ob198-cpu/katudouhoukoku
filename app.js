@@ -21,6 +21,7 @@ let cloudRevision = null;
 let cloudConnectionReady = false;
 let pendingReportFlushPromise = null;
 let pendingReportRetryTimer = null;
+const transientSnapshotCache = new Map();
 
 const DEFAULT_ACTIVITIES = [
   { id: "transcription", label: "文字起こし", hint: "納品したかどうか", active: true },
@@ -165,10 +166,27 @@ function hasSameDayNameReport(report, exceptId = "") {
 
 function parseJson(key, fallback) {
   try {
-    const parsed = JSON.parse(localStorage.getItem(key) || "");
+    const serialized = transientSnapshotCache.has(key)
+      ? transientSnapshotCache.get(key)
+      : localStorage.getItem(key);
+    const parsed = JSON.parse(serialized || "");
     return parsed ?? fallback;
   } catch {
     return fallback;
+  }
+}
+
+function writeCachedJson(key, value, { allowMemoryFallback = false } = {}) {
+  const serialized = JSON.stringify(value);
+  try {
+    localStorage.setItem(key, serialized);
+    transientSnapshotCache.delete(key);
+  } catch (error) {
+    const quotaExceeded = error?.name === "QuotaExceededError" ||
+      error?.name === "NS_ERROR_DOM_QUOTA_REACHED" || error?.code === 22 || error?.code === 1014;
+    // Re-fetchable snapshots/defaults may use memory; unsent/local changes still require durable storage.
+    if (!allowMemoryFallback || !quotaExceeded) throw error;
+    transientSnapshotCache.set(key, serialized);
   }
 }
 
@@ -198,11 +216,11 @@ function savePendingReports(pending) {
   checkLocalStorageCapacity();
 }
 
-function upsertLocalReport(report) {
+function upsertLocalReport(report, options = {}) {
   const normalized = normalizeReport(report);
   const reports = loadReports().filter(item => item.id !== normalized.id);
   reports.push(normalized);
-  saveReports(reports);
+  saveReports(reports, options);
   return normalized;
 }
 
@@ -241,8 +259,8 @@ function removePendingReport(id) {
   savePendingReports(loadPendingReports().filter(item => item.report.id !== id));
 }
 
-function mergePendingReportsIntoLocal() {
-  loadPendingReports().forEach(item => upsertLocalReport(item.report));
+function mergePendingReportsIntoLocal(options = {}) {
+  loadPendingReports().forEach(item => upsertLocalReport(item.report, options));
 }
 
 function comparableReport(report) {
@@ -510,11 +528,12 @@ async function cloudRequest(action, payload = {}, password = "") {
 }
 
 function applySnapshot(snapshot = {}) {
+  const cacheOptions = { allowMemoryFallback: true };
   if (Number.isFinite(Number(snapshot.revision))) cloudRevision = Number(snapshot.revision);
-  if (Array.isArray(snapshot.activities)) saveActivities(snapshot.activities);
-  if (Array.isArray(snapshot.reports)) saveReports(snapshot.reports);
-  if (Array.isArray(snapshot.history)) saveHistory(snapshot.history);
-  mergePendingReportsIntoLocal();
+  if (Array.isArray(snapshot.activities)) saveActivities(snapshot.activities, cacheOptions);
+  if (Array.isArray(snapshot.reports)) saveReports(snapshot.reports, cacheOptions);
+  if (Array.isArray(snapshot.history)) saveHistory(snapshot.history, cacheOptions);
+  mergePendingReportsIntoLocal(cacheOptions);
 }
 
 async function refreshCloudPublic() {
@@ -580,7 +599,7 @@ function loadActivities() {
   let activities = parseJson(ACTIVITIES_KEY, []);
   if (!Array.isArray(activities) || !activities.length) {
     activities = defaultActivities();
-    saveActivities(activities);
+    saveActivities(activities, { allowMemoryFallback: cloudEnabled() });
   }
   return activities
     .map(normalizeActivity)
@@ -588,12 +607,12 @@ function loadActivities() {
     .sort((a, b) => a.order - b.order);
 }
 
-function saveActivities(activities) {
+function saveActivities(activities, options = {}) {
   const normalized = activities
     .map(normalizeActivity)
     .filter(activity => activity.label)
     .map((activity, index) => ({ ...activity, order: index }));
-  localStorage.setItem(ACTIVITIES_KEY, JSON.stringify(normalized));
+  writeCachedJson(ACTIVITIES_KEY, normalized, options);
 }
 
 function activeActivities() {
@@ -650,8 +669,8 @@ function loadReports() {
     : [];
 }
 
-function saveReports(reports) {
-  localStorage.setItem(REPORTS_KEY, JSON.stringify(reports.map(normalizeReport)));
+function saveReports(reports, options = {}) {
+  writeCachedJson(REPORTS_KEY, reports.map(normalizeReport), options);
 }
 
 function loadHistory() {
@@ -659,8 +678,8 @@ function loadHistory() {
   return Array.isArray(history) ? history : [];
 }
 
-function saveHistory(history) {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 1000)));
+function saveHistory(history, options = {}) {
+  writeCachedJson(HISTORY_KEY, history.slice(0, 1000), options);
 }
 
 function cloneRecord(value) {
